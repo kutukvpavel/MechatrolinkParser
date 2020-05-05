@@ -7,8 +7,10 @@ using System.Threading.Tasks;
 
 namespace MechatrolinkParser
 {
-    static class Destuffer
+    static class HDLCManchesterDecoder
     {
+        public const byte Flag = 0x7E;
+
         public static SortedList<int, bool> DestuffZeroes(SortedList<int, bool> data)
         {
             int ones = 0;
@@ -28,6 +30,7 @@ namespace MechatrolinkParser
                     if ((ones == 5) && !data.Values[i + 1])
                     {
                         data.RemoveAt(i + 1);
+                        ones = 0;
                     }
                 }
                 catch (ArgumentOutOfRangeException)
@@ -38,18 +41,13 @@ namespace MechatrolinkParser
             }
             return data;
         }
-    }
-
-    static class HDLCManchesterDecoder
-    {
-        public const byte Flag = 0x7E;
-
         public static SortedList<int, byte> PackIntoBytes(SortedList<int, bool> bits)
         {
             int len = bits.Count;
             if (len % 8 != 0)
             {
-                Program.ErrorListener.Add(new ArgumentException("Warning: bit count is not a multiple 8. It will be truncated."));
+                Program.ErrorListener.Add(new ArgumentException(string.Format(
+                    "Warning: bit count at {0} is not a multiple 8. It will be truncated.", bits.Keys[0])));
                 len -= len % 8;
             }
             int byteLen = len / 8;
@@ -113,25 +111,30 @@ namespace MechatrolinkParser
                     break;
                 }
             }
+            //Program.DataReporter.ReportProgress("Preambles parsed...");
+            SortedList<int, bool> bits = new SortedList<int, bool>(data.Capacity);
             //Preamble key = start timestamp, value = end timestamp
             //Now shift a halfperiod to the right and divide the timeline into timeslots
             //For each packet find transitions that fit into the timeslots
-            SortedList<int, bool> bits = new SortedList<int, bool>(data.Capacity);
+            //Adjust the clock at every recovered edge to prevent error accumulation
             int currentHigh = 0;
             for (int i = 0; i < preambles.Count; i++)
             {
-                current = preambles.Values[i] + pl;
-                currentHigh = preambles.Values[i] + ph;
-
+                current = preambles.Values[i] + pl;      //Next data edge lower bound
+                currentHigh = preambles.Values[i] + ph;   //Next data edge higher bound
+                //Get rid of redundant bits   
+                while (data.Keys[0] < current)
+                {
+                    data.RemoveAt(0);
+                }
                 while (current < data.Keys.Last())
                 {
                     try
                     {
                         KeyValuePair<int, bool> v = data.First(x => (x.Key > current && x.Key < currentHigh));
-                        bits.Add(v.Key, v.Value);
-                        data.Remove(v.Key);
-                        current += p;
-                        currentHigh += p;
+                        bits.Add(v.Key, v.Value); 
+                        current = v.Key + pl;
+                        currentHigh = v.Key + ph;
                     }
                     catch (InvalidOperationException)
                     {
@@ -167,9 +170,9 @@ namespace MechatrolinkParser
                     }
                     else
                     {
-                        for (int j = 1; j < 8; j++) //Remove the 7 bits of the closing flag we've already copied
+                        for (int j = 0; j < 7; j++) //Remove the 7 bits of the closing flag we've already copied
                         {
-                            temp.RemoveAt(temp.Count - j);
+                            temp.RemoveAt(temp.Count - 1);
                         }
                         res.Add(temp);
                     }
@@ -198,18 +201,20 @@ namespace MechatrolinkParser
 
         public static Communication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
         {
-            var packets = HDLCManchesterDecoder.SeparatePackets(
-                HDLCManchesterDecoder.Decode(list, frequency, 0.25));
-            Program.DataReporter.ReportProgress("HDLC layer parsed...");
+            var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
+            //Program.DataReporter.ReportProgress("Manchester layer decoded...");
+            var packets = HDLCManchesterDecoder.SeparatePackets(tempDecoded);
+            Program.DataReporter.ReportProgress("HDLC layer decoded...");
             Packet[] decoded = new Packet[packets.Length];
             for (int i = 0; i < packets.Length; i++)
             {
                 byte[] temp = HDLCManchesterDecoder.PackIntoBytes(
-                    Destuffer.DestuffZeroes(packets[i])).Values.ToArray();
-                Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
+                    HDLCManchesterDecoder.DestuffZeroes(packets[i])).Values.ToArray();
+                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
                 decoded[i] = Packet.Parse(temp, packets[i].Keys.First(), littleEndian);
-                Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
+                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
             }
+            Program.DataReporter.ReportProgress("Packets parsed...");
             return new Communication(decoded, (int)Math.Round(1E8 / frequency));
         } 
     }
@@ -472,6 +477,7 @@ namespace MechatrolinkParser
                     }
                     res.AppendLine();
                 }
+                //ReportProgress("Report created...");
                 return res.ToString();
             }
 
@@ -482,7 +488,7 @@ namespace MechatrolinkParser
 
             public static void ReportProgress(string data)
             {
-                if (EnableProgressOutput) Console.WriteLine(data);
+                if (EnableProgressOutput) Console.WriteLine(string.Format("{0:T}: {1}", DateTime.Now, data));
             }
         }
 
@@ -491,22 +497,24 @@ namespace MechatrolinkParser
         static void Main(string[] args)
         {
 #if DEBUG
-            args = new string[] { @"C:\vs\50MSa.txt", "200000", "4000000" };
+            args = new string[] { @"E:\50MSa.txt", "1000000", "4000000" };
 #endif
             if (args.Length < 1)
             {
                 Console.WriteLine(@"Not enough arguments. Usage:
-MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency, Hz> <Options>"
-+ Environment.NewLine + @"Options: [-e] = packet body endianess swap (default is 'big-endian')"
-+ Environment.NewLine + @"Time limit and frequency are optional, defaults: 200000 and 4000000.");
+MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency, Hz> <Options>
+Options: [-e] = packet body endianess swap (default is 'big-endian')
+[-s] = silent (switch off progress reports)
+Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 Console.ReadLine();
                 return;
             }
 
-            Console.WriteLine("Parsing command line...");
+            //DataReporter.ReportProgress("Parsing command line...");
             int limit = 200000;
             int freq = 4000000;
             bool swap = false;
+            bool silent = false;
             try
             {
                 if (args.Length > 1)
@@ -518,6 +526,7 @@ MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency,
                     }
                 }
                 swap = args.Contains("-e");
+                silent = args.Contains("-s");
             }
             catch (Exception e)
             {
@@ -528,14 +537,14 @@ MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency,
             Console.WriteLine(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
                 limit, freq, swap));
 
-            Console.WriteLine("Parsing data...");
+            DataReporter.ReportProgress("Parsing data...");
 
             var data = LogicAnalyzerData.Create(args[0].Trim('"'), limit);
             var parsed = Communication.Parse(data, freq, swap);
 
             Console.WriteLine(Environment.NewLine + "Warnings:");
             Console.WriteLine(ErrorListener.ToString());
-            Console.WriteLine("Done." + Environment.NewLine);
+            DataReporter.ReportProgress("Done." + Environment.NewLine);
             Console.WriteLine(DataReporter.CreateReportString(parsed));
 
 #if DEBUG
