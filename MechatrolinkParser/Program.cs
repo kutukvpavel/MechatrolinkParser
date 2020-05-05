@@ -7,437 +7,6 @@ using System.Threading.Tasks;
 
 namespace MechatrolinkParser
 {
-    /// <summary>
-    /// Static method wrapper
-    /// </summary>
-    static class HDLCManchesterDecoder
-    {
-        /// <summary>
-        /// Mechatrolink-II uses the same flag (packet start and end marker) value the HDLC does.
-        /// </summary>
-        public const byte Flag = 0x7E;
-
-        /// <summary>
-        /// Remove zero bits stuffed in for transparency of the protocol
-        /// </summary>
-        /// <param name="data">Bool stand for already decoded bits, not just transitions</param>
-        /// <returns>Array of bits</returns>
-        public static SortedList<int, bool> DestuffZeroes(SortedList<int, bool> data)
-        {
-            int ones = 0;
-            data = new SortedList<int, bool>(data);
-            for (int i = 0; i < data.Count; i++)
-            {
-                if (data.Values[i])
-                {
-                    ones++;
-                }
-                else
-                {
-                    ones = 0;
-                }
-                try
-                {
-                    if ((ones == 5) && !data.Values[i + 1])
-                    {
-                        data.RemoveAt(i + 1);
-                        ones = 0;
-                    }
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    Program.ErrorListener.Add(new ArgumentException("Warning: incomplete bit sequence detected!"));
-                    break;
-                }
-            }
-            return data;
-        }
-        /// <summary>
-        /// Packs arrays of bool-s into an array of bytes.
-        /// Mechatrolink-II packet structure is based on bytes, therefore this is convenient.
-        /// </summary>
-        /// <param name="bits">Bool stand for already decoded bits, not just transitions</param>
-        /// <returns></returns>
-        public static SortedList<int, byte> PackIntoBytes(SortedList<int, bool> bits)
-        {
-            int len = bits.Count;
-            if (len % 8 != 0)
-            {
-                Program.ErrorListener.Add(new ArgumentException(string.Format(
-                    "Warning: bit count at {0} is not a multiple 8. It will be truncated.", bits.Keys[0])));
-                len -= len % 8;
-            }
-            int byteLen = len / 8;
-            SortedList<int, byte> result = new SortedList<int, byte>(byteLen);
-            for (int i = 0; i < byteLen; i++)
-            {
-                byte temp = new byte();
-                for (int j = 0; j < 8; j++)
-                {
-                    temp |= (byte)((bits.Values[i * 8 + j] ? 1 : 0) << j);
-                }
-                result.Add(bits.Keys[i * 8], temp);
-            }
-            return result;
-        }
-        /// <summary>
-        /// Decodes Manchester-encoded data (edges).
-        /// </summary>
-        /// <param name="data">Array of edges</param>
-        /// <param name="freq">Communication frequency (equal to speed, 4Mbps = 4MHz for Mechatrolink-I and 10MHz for M-II)</param>
-        /// <param name="error">Allowed tolerance for edge position (fraction of a period, usually 0.25 = 25%)</param>
-        /// <returns>Array of bits</returns>
-        public static SortedList<int, bool> Decode(SortedList<int, bool> data, int freq, double error)
-        {
-            data = new SortedList<int, bool>(data);
-            int p = (int)Math.Round(1E8 / freq); 
-            int ph = (int)Math.Round(p * (1 + error));
-            int pl = (int)Math.Round(p * (1 - error));
-            SortedList<int, int> pulses = new SortedList<int, int>(data.Count - 1);
-            for (int i = 0; i < data.Count - 1; i++)
-            {
-                pulses.Add(data.Keys[i], data.Keys[i + 1] - data.Keys[i]);
-            }
-            //Look for the preamble: 16 transitions (15 pulses) approximately a period apart, starts with low-to-high, ends with high-to-low
-            SortedList<int, int> preambles = new SortedList<int, int>();
-            int current = 0;
-            for (int i = 0; i < pulses.Count; i++)
-            {
-                if (current == 0)
-                {
-                    if (!data[pulses.Keys[i]]) continue;
-                }
-                if (pulses.Values[i] > pl && pulses.Values[i] < ph)
-                {
-                    current++;
-                }
-                else
-                {
-                    current = 0;
-                }
-                try
-                {
-                    if (current == 15)
-                    //Next (last) transition is followed by a period/2 pulse, because the flag field starts with 0 (high-to-low).
-                    {
-                        if (!data[pulses.Keys[i + 1]])
-                        {
-                            preambles.Add(pulses.Keys[i - 15], pulses.Keys[i + 1]);
-                        }
-                        current = 0;
-                    }
-                }
-                catch (ArgumentOutOfRangeException)
-                {
-                    Program.ErrorListener.Add(new ArgumentException(
-                        "Warning: the bitstream contains an incomplete packet. It will be discarded."));
-                    break;
-                }
-            }
-            //Program.DataReporter.ReportProgress("Preambles parsed...");
-            SortedList<int, bool> bits = new SortedList<int, bool>(data.Capacity);
-            //Preamble key = start timestamp, value = end timestamp
-            //Now shift a halfperiod to the right and divide the timeline into timeslots
-            //For each packet find transitions that fit into the timeslots
-            //Adjust the clock at every recovered edge to prevent error accumulation
-            int currentHigh = 0;
-            for (int i = 0; i < preambles.Count; i++)
-            {
-                current = preambles.Values[i] + pl;      //Next data edge lower bound
-                currentHigh = preambles.Values[i] + ph;   //Next data edge higher bound
-                //Get rid of redundant bits   
-                while (data.Keys[0] < current)
-                {
-                    data.RemoveAt(0);
-                }
-                while (current < data.Keys.Last())
-                {
-                    try
-                    {
-                        KeyValuePair<int, bool> v = data.First(x => (x.Key > current && x.Key < currentHigh));
-                        bits.Add(v.Key, v.Value); 
-                        current = v.Key + pl;
-                        currentHigh = v.Key + ph;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        break;
-                    }
-                }
-            }
-            return bits;
-        }
-        /// <summary>
-        /// Searches for flags and extracts contents of the packets.
-        /// </summary>
-        /// <param name="data">Expects decoded bits with preambles removed.</param>
-        /// <returns>Array of packets represented as arrays of bytes</returns>
-        public static SortedList<int, bool>[] SeparatePackets(SortedList<int, bool> data)
-        {
-            List<SortedList<int, bool>> res = new List<SortedList<int, bool>>();
-            byte rollingSequence = 0;
-            //Setup: 0bXXXXXXX0
-            for (int i = 0; i < 7; i++)
-            {
-                rollingSequence |= (byte)((data.Values[i] ? 1u : 0u) << (i + 1)); //LSB first
-            }
-            bool copy = false;
-            SortedList<int, bool> temp = null;
-            //First iteration will shift to the right: 0b0XXXXXXX and fill the 0 in
-            for (int i = 7; i < data.Count; i++)
-            {
-                rollingSequence >>= 1;
-                if (data.Values[i]) rollingSequence |= (byte)(1u << 7);
-                if (rollingSequence == Flag)
-                {
-                    copy = !copy;
-                    if (copy)
-                    {
-                        temp = new SortedList<int, bool>();
-                    }
-                    else
-                    {
-                        for (int j = 0; j < 7; j++) //Remove the 7 bits of the closing flag we've already copied
-                        {
-                            temp.RemoveAt(temp.Count - 1);
-                        }
-                        res.Add(temp);
-                    }
-                    continue; //Do not copy the last bit of the opening flag
-                }
-                if (copy) temp.Add(data.Keys[i], data.Values[i]);
-            }
-            return res.ToArray();
-        }
-    }
-
-    /// <summary>
-    /// Top-level entity
-    /// </summary>
-    class Communication
-    {
-        /// <summary>
-        /// x10nS (default is 25 == 4MHz)
-        /// </summary>
-        public int Period { get; private set; }
-
-        private Communication(Packet[] data, int period)
-        {
-            Packets = data.ToArray();
-            Period = period;
-        }
-
-        public Packet[] Packets { get; private set; }
-
-        /// <summary>
-        /// Gets raw logic analyzer data (edges) and does complete decoding.
-        /// </summary>
-        /// <param name="list">Edge list</param>
-        /// <param name="frequency">Communication frequency (equal to speed, 4Mbps = 4MHz for Mechatrolink-I and 10MHz for M-II)</param>
-        /// <param name="littleEndian">Publicly available bits of docs are confusing on the subject of command body endianess.
-        /// Experience suggests that body bytes on their own are transmitted as big-endian,
-        /// though multibyte data pieces inside the body might be encoded as little-endian.</param>
-        /// <returns></returns>
-        public static Communication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
-        {
-            var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
-            //Program.DataReporter.ReportProgress("Manchester layer decoded...");
-            var packets = HDLCManchesterDecoder.SeparatePackets(tempDecoded);
-            Program.DataReporter.ReportProgress("HDLC layer decoded...");
-            Packet[] decoded = new Packet[packets.Length];
-            for (int i = 0; i < packets.Length; i++)
-            {
-                byte[] temp = HDLCManchesterDecoder.PackIntoBytes(
-                    HDLCManchesterDecoder.DestuffZeroes(packets[i])).Values.ToArray();
-                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
-                decoded[i] = Packet.Parse(temp, packets[i].Keys.First(), littleEndian);
-                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
-            }
-            Program.DataReporter.ReportProgress("Packets parsed...");
-            return new Communication(decoded, (int)Math.Round(1E8 / frequency));
-        } 
-    }
-
-    /// <summary>
-    /// Single packet (with flags and preambles already removed)
-    /// </summary>
-    class Packet
-    {
-        /// <summary>
-        /// Properly ordered, starting from 0, subcommand separated as an independent field.
-        /// Assumes that flags (and the preamble) have already been separated.
-        /// </summary>
-        public enum Fields
-        {
-            Address,
-            Control,
-            CommandData,
-            SubcommandData,
-            FCS
-        }
-        /// <summary>
-        /// In bytes
-        /// </summary>
-        public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
-        {
-            { Fields.Address, 1 },
-            { Fields.Control, 1 },
-            { Fields.CommandData, 16 },
-            { Fields.SubcommandData, 15 },
-            { Fields.FCS, 2 }
-
-        };
-        /// <summary>
-        /// Without subcommand (bytes)
-        /// </summary>
-        public const int OrdinaryPacketLength = 20;
-        /// <summary>
-        /// With a subcommand (bytes)
-        /// </summary>
-        public const int FullPacketLength = 35;
-        /// <summary>
-        /// Exclude subcommand fields for ordinary packets
-        /// </summary>
-        public static readonly Fields[] OrdinaryPacketFieldsToExclude = { Fields.SubcommandData };
-
-        private Packet(byte[][] d, Command cmd)
-        {
-            ParsedData = d.Select(x => (x != null) ? x.ToArray() : null).ToArray();
-            Command = cmd;
-        }
-        private Packet(byte[][] d, Command cmd, int time) : this(d, cmd)
-        {
-            Timestamp = time;
-        }
-
-        public byte[][] ParsedData { get; private set; }
-        public Command Command { get; private set; }
-        /// <summary>
-        /// x10nS
-        /// </summary>
-        public int Timestamp { get; private set; }
-
-        /// <summary>
-        /// Sorts packet's bytes into easily accessible structures. Manipulates endianess.
-        /// </summary>
-        /// <param name="data">Expects bytes, composed of fully decoded bits (Decode, then SeparatePackets, then DestuffZeros, then PackIntoBytes).</param>
-        /// <param name="time">x10nS</param>
-        /// <param name="littleEndian">See Communications.Parse</param>
-        /// <returns></returns>
-        public static Packet Parse(byte[] data, int time, bool littleEndian = false)
-        {
-            bool containsSub = data.Length > OrdinaryPacketLength;
-            byte[][] result = new byte[FieldLength.Count][];
-            int current = 0;
-            for (int i = 0; i < FieldLength.Count; i++)
-            {
-                if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;
-                int l = FieldLength[(Fields)i];
-                result[i] = new byte[l];
-                //Multibyte fields may be little-endian at physical layer (in fact they should be, but it turns out they're not...)
-                //All in all, we'd better implement a switch
-                if (littleEndian)
-                {
-                    for (int j = 0; j < l; j++)
-                    {
-                        result[i][j] = data[current + l - j - 1];
-                    }
-                }
-                else
-                {
-                    for (int j = 0; j < l; j++)
-                    {
-                        result[i][j] = data[current + j];
-                    }
-                }
-                current += l;
-            }
-            var toParse = result[(int)Fields.CommandData];
-            if (containsSub) toParse = toParse.Concat(result[(int)Fields.SubcommandData]).ToArray();
-            return new Packet(result, Command.Parse(toParse), time);
-        }
-    }
-    /// <summary>
-    /// Single command body (address and other headers/trailers removed)
-    /// </summary>
-    class Command
-    {
-        /// <summary>
-        /// Ordered
-        /// </summary>
-        public enum Fields
-        {
-            Code,
-            Data,
-            WDT,
-            SubcommandCode,
-            SubcommandData
-        }
-        /// <summary>
-        /// In bytes
-        /// </summary>
-        public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
-        {
-            { Fields.Code, 1 },
-            { Fields.Data, 14 },
-            { Fields.WDT, 1 },
-            { Fields.SubcommandCode, 1 },
-            { Fields.SubcommandData, 14 }
-        };
-        /// <summary>
-        /// Bytes, without a subcommand
-        /// </summary>
-        public static int MainCommandLength
-        {
-            get
-            {
-                return FieldLength[Fields.Code] + FieldLength[Fields.Data] + FieldLength[Fields.WDT];
-            }
-        }
-        /// <summary>
-        /// Without subcommand (in fields! it's just a coincidence that those fields are 1-byte-long)
-        /// </summary>
-        public const int MainCommandFieldsCount = 3;
-
-
-        private Command(byte[][] f, bool cs)
-        {
-            ParsedFields = f.Select(x => x.ToArray()).ToArray();
-            ContainsSubcommand = cs;
-        }
-
-        public byte[][] ParsedFields { get; private set; }
-
-        public bool ContainsSubcommand { get; private set; }
-
-        /// <summary>
-        /// Just sorts bytes into structures. Does not touch endianess, until specific command decoders are implemented.
-        /// </summary>
-        /// <param name="data">Expects stripped command body (without address and FCS)</param>
-        /// <returns></returns>
-        public static Command Parse(byte[] data)
-        {
-            bool containsSub = data.Length > MainCommandLength;
-            int length = containsSub ? FieldLength.Count : MainCommandFieldsCount;
-            int current = 0; //Current position index
-            byte[][] result = new byte[length][];
-            for (int i = 0; i < length; i++)
-            {
-                int l = FieldLength[(Fields)i];
-                result[i] = new byte[l];
-                //Multibyte fields have already been converted to big-endian, if needed (in packet.parse())
-                for (int j = 0; j < l; j++)
-                {
-                    result[i][j] = data[current + j];
-                }
-                current += l;
-            }
-            return new Command(result, containsSub);
-        }
-    }
-
-
-
     class Program
     {
         public static class ErrorListener
@@ -460,7 +29,8 @@ namespace MechatrolinkParser
                 StringBuilder res = new StringBuilder();
                 foreach (var item in list)
                 {
-                    res.AppendFormat("{0}: {1}" + Environment.NewLine, item.GetType().ToString(), item.Message);
+                    res.AppendFormat("{0}: {1}; {2}" + Environment.NewLine, 
+                        item.GetType().ToString(), item.Message, item.InnerException != null ? item.InnerException.ToString() : "");
                 }
                 return res.ToString();
             }
@@ -506,7 +76,7 @@ namespace MechatrolinkParser
 
             private static readonly string PacketHeaderFormat = "Timestamp: {0}" + Environment.NewLine +
                 "Address: {1}" + Environment.NewLine +
-                "Control: {2}" + Environment.NewLine + "FCS: {3}" + Environment.NewLine;
+                "Control: {2}" + Environment.NewLine + "FCS {3}: {4} (computed: {5})" + Environment.NewLine;
             private static readonly string PacketDataFormat = "Command: {0}" + Environment.NewLine +
                 "WDR: {1}" + Environment.NewLine + "Data: {2}" + Environment.NewLine;
 
@@ -518,26 +88,31 @@ namespace MechatrolinkParser
                     data.Packets.Length, data.Period));
                 foreach (var item in data.Packets)
                 {
-                    res.AppendLine("/////////////////// Packet //////////////////");
-                    res.AppendLine("===== HEADER =====");
+                    res.AppendLine("///////////////////////////////////// Packet ///////////////////////////////////");
+                    res.AppendLine("Raw: " + string.Join(" ", 
+                        item.ParsedData.Select(x => ArrayToString(x ?? new byte[0]))));
+                    res.AppendLine("================ HEADER ==================");
                     res.AppendFormat(PacketHeaderFormat, item.Timestamp, 
                         ArrayToString(item.ParsedData[(int)Packet.Fields.Address]),
                         ArrayToString(item.ParsedData[(int)Packet.Fields.Control]),
-                        ArrayToString(item.ParsedData[(int)Packet.Fields.FCS]));
-                    res.AppendLine("===== COMMAND =====");
+                        item.FCSError ? "ERROR" : "OK",
+                        ArrayToString(item.ParsedData[(int)Packet.Fields.FCS]),
+                        ArrayToString(item.ComputedFCS));
+                    res.AppendLine("================ COMMAND ==================");
                     res.AppendFormat(PacketDataFormat,
                         ArrayToString(item.Command.ParsedFields[(int)Command.Fields.Code]),
                         ArrayToString(item.Command.ParsedFields[(int)Command.Fields.WDT]),
                         ArrayToString(item.Command.ParsedFields[(int)Command.Fields.Data]));
                     if (item.Command.ContainsSubcommand)
                     {
-                        res.AppendLine("===== SUBCOMMAND =====");
+                        res.AppendLine("================= SUBCOMMAND ==================");
                         res.AppendFormat(PacketDataFormat,
                             ArrayToString(item.Command.ParsedFields[(int)Command.Fields.SubcommandCode]),
                             " -- ",
                             ArrayToString(item.Command.ParsedFields[(int)Command.Fields.SubcommandData]));
                     }
-                    res.AppendLine();
+                    res.AppendLine(item.DatabaseReport);
+                    //res.AppendLine();
                 }
                 //ReportProgress("Report created...");
                 return res.ToString();
@@ -545,7 +120,7 @@ namespace MechatrolinkParser
 
             private static string ArrayToString(byte[] arr)
             {
-                return string.Join(" ", arr.Select(x => x.ToString("X")));
+                return string.Join(" ", arr.Select(x => x.ToString("X2")));
             }
 
             public static void ReportProgress(string data)
@@ -559,7 +134,7 @@ namespace MechatrolinkParser
         static void Main(string[] args)
         {
 #if DEBUG
-            args = new string[] { @"E:\50MSa.txt", "1000000", "4000000" };
+            args = new string[] { @"E:\50MSa.txt", "200000", "4000000" };
 #endif
             if (args.Length < 1)
             {
