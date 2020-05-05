@@ -7,10 +7,21 @@ using System.Threading.Tasks;
 
 namespace MechatrolinkParser
 {
+    /// <summary>
+    /// Static method wrapper
+    /// </summary>
     static class HDLCManchesterDecoder
     {
+        /// <summary>
+        /// Mechatrolink-II uses the same flag (packet start and end marker) value the HDLC does.
+        /// </summary>
         public const byte Flag = 0x7E;
 
+        /// <summary>
+        /// Remove zero bits stuffed in for transparency of the protocol
+        /// </summary>
+        /// <param name="data">Bool stand for already decoded bits, not just transitions</param>
+        /// <returns>Array of bits</returns>
         public static SortedList<int, bool> DestuffZeroes(SortedList<int, bool> data)
         {
             int ones = 0;
@@ -41,6 +52,12 @@ namespace MechatrolinkParser
             }
             return data;
         }
+        /// <summary>
+        /// Packs arrays of bool-s into an array of bytes.
+        /// Mechatrolink-II packet structure is based on bytes, therefore this is convenient.
+        /// </summary>
+        /// <param name="bits">Bool stand for already decoded bits, not just transitions</param>
+        /// <returns></returns>
         public static SortedList<int, byte> PackIntoBytes(SortedList<int, bool> bits)
         {
             int len = bits.Count;
@@ -63,11 +80,17 @@ namespace MechatrolinkParser
             }
             return result;
         }
+        /// <summary>
+        /// Decodes Manchester-encoded data (edges).
+        /// </summary>
+        /// <param name="data">Array of edges</param>
+        /// <param name="freq">Communication frequency (equal to speed, 4Mbps = 4MHz for Mechatrolink-I and 10MHz for M-II)</param>
+        /// <param name="error">Allowed tolerance for edge position (fraction of a period, usually 0.25 = 25%)</param>
+        /// <returns>Array of bits</returns>
         public static SortedList<int, bool> Decode(SortedList<int, bool> data, int freq, double error)
         {
             data = new SortedList<int, bool>(data);
-            int p = (int)Math.Round(1E8 / freq);
-            int pe = (int)Math.Round(p * error);
+            int p = (int)Math.Round(1E8 / freq); 
             int ph = (int)Math.Round(p * (1 + error));
             int pl = (int)Math.Round(p * (1 - error));
             SortedList<int, int> pulses = new SortedList<int, int>(data.Count - 1);
@@ -144,7 +167,11 @@ namespace MechatrolinkParser
             }
             return bits;
         }
-
+        /// <summary>
+        /// Searches for flags and extracts contents of the packets.
+        /// </summary>
+        /// <param name="data">Expects decoded bits with preambles removed.</param>
+        /// <returns>Array of packets represented as arrays of bytes</returns>
         public static SortedList<int, bool>[] SeparatePackets(SortedList<int, bool> data)
         {
             List<SortedList<int, bool>> res = new List<SortedList<int, bool>>();
@@ -184,6 +211,9 @@ namespace MechatrolinkParser
         }
     }
 
+    /// <summary>
+    /// Top-level entity
+    /// </summary>
     class Communication
     {
         /// <summary>
@@ -199,6 +229,15 @@ namespace MechatrolinkParser
 
         public Packet[] Packets { get; private set; }
 
+        /// <summary>
+        /// Gets raw logic analyzer data (edges) and does complete decoding.
+        /// </summary>
+        /// <param name="list">Edge list</param>
+        /// <param name="frequency">Communication frequency (equal to speed, 4Mbps = 4MHz for Mechatrolink-I and 10MHz for M-II)</param>
+        /// <param name="littleEndian">Publicly available bits of docs are confusing on the subject of command body endianess.
+        /// Experience suggests that body bytes on their own are transmitted as big-endian,
+        /// though multibyte data pieces inside the body might be encoded as little-endian.</param>
+        /// <returns></returns>
         public static Communication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
         {
             var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
@@ -219,35 +258,34 @@ namespace MechatrolinkParser
         } 
     }
 
+    /// <summary>
+    /// Single packet (with flags and preambles already removed)
+    /// </summary>
     class Packet
     {
         /// <summary>
-        /// Properly ordered, starting from 0, subcommand separated as an independent field
+        /// Properly ordered, starting from 0, subcommand separated as an independent field.
+        /// Assumes that flags (and the preamble) have already been separated.
         /// </summary>
         public enum Fields
         {
-            //Preamble,
-            //OpeningFlag,
             Address,
             Control,
             CommandData,
             SubcommandData,
             FCS
-            //ClosingFlag
         }
         /// <summary>
         /// In bytes
         /// </summary>
         public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
         {
-            //{ Fields.Preamble, 2 },
-            //{ Fields.OpeningFlag, 1 },
             { Fields.Address, 1 },
             { Fields.Control, 1 },
             { Fields.CommandData, 16 },
             { Fields.SubcommandData, 15 },
             { Fields.FCS, 2 }
-            //{ Fields.ClosingFlag, 1 }
+
         };
         /// <summary>
         /// Without subcommand (bytes)
@@ -257,6 +295,9 @@ namespace MechatrolinkParser
         /// With a subcommand (bytes)
         /// </summary>
         public const int FullPacketLength = 35;
+        /// <summary>
+        /// Exclude subcommand fields for ordinary packets
+        /// </summary>
         public static readonly Fields[] OrdinaryPacketFieldsToExclude = { Fields.SubcommandData };
 
         private Packet(byte[][] d, Command cmd)
@@ -271,8 +312,18 @@ namespace MechatrolinkParser
 
         public byte[][] ParsedData { get; private set; }
         public Command Command { get; private set; }
+        /// <summary>
+        /// x10nS
+        /// </summary>
         public int Timestamp { get; private set; }
 
+        /// <summary>
+        /// Sorts packet's bytes into easily accessible structures. Manipulates endianess.
+        /// </summary>
+        /// <param name="data">Expects bytes, composed of fully decoded bits (Decode, then SeparatePackets, then DestuffZeros, then PackIntoBytes).</param>
+        /// <param name="time">x10nS</param>
+        /// <param name="littleEndian">See Communications.Parse</param>
+        /// <returns></returns>
         public static Packet Parse(byte[] data, int time, bool littleEndian = false)
         {
             bool containsSub = data.Length > OrdinaryPacketLength;
@@ -306,6 +357,9 @@ namespace MechatrolinkParser
             return new Packet(result, Command.Parse(toParse), time);
         }
     }
+    /// <summary>
+    /// Single command body (address and other headers/trailers removed)
+    /// </summary>
     class Command
     {
         /// <summary>
@@ -331,7 +385,7 @@ namespace MechatrolinkParser
             { Fields.SubcommandData, 14 }
         };
         /// <summary>
-        /// Bytes
+        /// Bytes, without a subcommand
         /// </summary>
         public static int MainCommandLength
         {
@@ -340,6 +394,9 @@ namespace MechatrolinkParser
                 return FieldLength[Fields.Code] + FieldLength[Fields.Data] + FieldLength[Fields.WDT];
             }
         }
+        /// <summary>
+        /// Without subcommand (in fields! it's just a coincidence that those fields are 1-byte-long)
+        /// </summary>
         public const int MainCommandFieldsCount = 3;
 
 
@@ -353,6 +410,11 @@ namespace MechatrolinkParser
 
         public bool ContainsSubcommand { get; private set; }
 
+        /// <summary>
+        /// Just sorts bytes into structures. Does not touch endianess, until specific command decoders are implemented.
+        /// </summary>
+        /// <param name="data">Expects stripped command body (without address and FCS)</param>
+        /// <returns></returns>
         public static Command Parse(byte[] data)
         {
             bool containsSub = data.Length > MainCommandLength;
