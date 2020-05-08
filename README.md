@@ -6,7 +6,8 @@ Done: essential stuff, i.e. text import, Manchester decoder, HDLC parser and dat
 
 Todo: visualisation (probably use my LogicSnifferSTM plotter), improve command database.
 
-Supported logic analyzer export formats: Kingst *.txt (similar to CSV).
+Supported logic analyzer export formats: Kingst .txt (similar to CSV), LogicSnifferSTM (colon-separated).
 
 Output example:
+
 ![example](https://i.imgur.com/6qcbgOA.png)
