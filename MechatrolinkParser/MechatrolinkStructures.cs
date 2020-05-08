@@ -36,19 +36,19 @@ namespace MechatrolinkParser
         public static Communication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
         {
             var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
-            //Program.DataReporter.ReportProgress("Manchester layer decoded...");
+            //DataReporter.ReportProgress("Manchester layer decoded...");
             var packets = HDLCManchesterDecoder.SeparatePackets(tempDecoded);
-            Program.DataReporter.ReportProgress("HDLC layer decoded...");
+            DataReporter.ReportProgress("HDLC layer decoded...");
             Packet[] decoded = new Packet[packets.Length];
             for (int i = 0; i < packets.Length; i++)
             {
                 byte[] temp = HDLCManchesterDecoder.PackIntoBytes(
                     HDLCManchesterDecoder.DestuffZeroes(packets[i])).Values.ToArray();
-                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
+                //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
                 decoded[i] = Packet.Parse(temp, packets[i].Keys.First(), littleEndian);
-                //Program.DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
+                //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
             }
-            Program.DataReporter.ReportProgress("Packets parsed...");
+            DataReporter.ReportProgress("Packets parsed...");
             return new Communication(decoded, (int)Math.Round(1E8 / frequency));
         }
     }

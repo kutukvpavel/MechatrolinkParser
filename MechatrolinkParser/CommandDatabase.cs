@@ -19,20 +19,35 @@ namespace MechatrolinkParser
         }
 
         public const byte ResponseControlCode = 0x01;
+        public const byte RequestControlCode = 0x03;
+        public const byte SyncFrameAddress = 0xFF;
+
         /// <summary>
         /// Fields are numbered as per the documentation on Sigma-II drives,
         /// -2 offset that results from command code stripping and byte numbering is internally taken care of.
         /// </summary>
         public static readonly Dictionary<byte, CommandInfo> Database;
         public static readonly Dictionary<CommonFieldTypes, Field> CommonFields;
+        public static readonly string SyncFrameReport = "================ Info: SYNC frame ================" + Environment.NewLine;
 
         static CommandDatabase()
         {
             CommonFields = new Dictionary<CommonFieldTypes, Field>
             {
-                { CommonFieldTypes.Alarm, new Field("ALARM", 2) },
+                { CommonFieldTypes.Alarm, new Field("ALARM", 2) { CustomParser = CustomParsers.AlarmParser } },
                 { CommonFieldTypes.MonitorSelect, new Field("MON_SEL", 13) { CustomParser = CustomParsers.MonitorSelectParser } },
-                { CommonFieldTypes.Status, new Field("STATUS", 3, 4) }
+                { CommonFieldTypes.Status, new BitField("STATUS", true, 3, 4)
+                    {
+                        BitsSetDesc = CustomParsers.StatusBitsSet,
+                        BitsUnsetDesc = CustomParsers.StatusBitsUnset
+                    }
+                },
+                { CommonFieldTypes.IO, new BitField("I/O", true, 14, 15)
+                    {
+                        BitsSetDesc = CustomParsers.IOBitsSet,
+                        BitsUnsetDesc = CustomParsers.IOBitsUnset
+                    }
+                }
             };
             Database = new List<CommandInfo>()
             {
@@ -41,7 +56,11 @@ namespace MechatrolinkParser
                     new Field[]
                     {
                         CommonFields[CommonFieldTypes.Alarm],
-                        new Field("STATUS", 3) //1-byte status field!!
+                        new BitField("STATUS", 3) //1-byte status field!!
+                        {
+                            BitsSetDesc = CustomParsers.StatusBitsSet,
+                            BitsUnsetDesc = CustomParsers.StatusBitsUnset
+                        }
                     }
                 ),
                 new CommandInfo("SMON", "Servo status monitoring", 0x30,
@@ -56,7 +75,7 @@ namespace MechatrolinkParser
                         new Field("MONITOR1", 5, 6, 7, 8),
                         new Field("MONITOR2", 9, 10, 11, 12),
                         CommonFields[CommonFieldTypes.MonitorSelect],
-                        new Field("I/O", 14)
+                        CommonFields[CommonFieldTypes.IO]
                     }
                 )
             }.ToDictionary(x => x.Code);
@@ -66,6 +85,7 @@ namespace MechatrolinkParser
         {
             try
             {
+                if (packet.ParsedData[(int)Packet.Fields.Address][0] == SyncFrameAddress) return SyncFrameReport;
                 var info = Database[packet.Command.ParsedFields[(int)Command.Fields.Code][0]];
                 return info.GetReport(packet.Command.ParsedFields[(int)Command.Fields.Data],
                     packet.ParsedData[(int)Packet.Fields.Control][0] == ResponseControlCode);
@@ -73,7 +93,7 @@ namespace MechatrolinkParser
             catch (KeyNotFoundException) { }
             catch (Exception e)
             {
-                Program.ErrorListener.Add(new Exception("Error during database search. Operation aborted.", e));
+                ErrorListener.Add(new Exception("Error during database search. Operation aborted.", e));
             }
             return "";
         }
@@ -105,7 +125,7 @@ namespace MechatrolinkParser
         public string GetReport(byte[] bytes, bool response)
         {
             StringBuilder res = new StringBuilder(string.Format(@"
-============== Info: {0}, {1} ===============
+================ Info: {0}, {1} =================
 Name: {2}, alias: {3}.
 ", response ? "RESP" : "REQ", Code.ToString("X"), Name, Alias));
             var f = response ? FieldsResponse : FieldsRequest;
@@ -138,9 +158,11 @@ Name: {2}, alias: {3}.
         public bool LittleEndian { get; } = false;
         public Func<byte[], string> CustomParser { get; set; }
 
-        public string GetReport(params byte[] bytes)
+        public virtual string GetReport(params byte[] bytes)
         {
-            bytes = bytes.Where((byte i, int j) => { return Bytes.Contains(j + 2); }).ToArray(); //Filter only the bytes of interest
+            //Get only the bytes that belong to the field
+            bytes = bytes.Where((byte i, int j) => { return Bytes.Contains(j + 2); }).ToArray();
+            if (LittleEndian) bytes = bytes.Reverse().ToArray();
             StringBuilder res = new StringBuilder(string.Format(@"----------------- Field: {0} ----------------
 ", Name));
             res.Append(string.Join(" ", bytes.Select(x => x.ToString("X2"))));
@@ -154,7 +176,7 @@ Name: {2}, alias: {3}.
                 }
                 catch (Exception e)
                 {
-                    Program.ErrorListener.Add(new Exception(
+                    ErrorListener.Add(new Exception(
                         string.Format("Error in a custom parser for field {0}", Name), e));
                 }
             }
@@ -177,17 +199,78 @@ Name: {2}, alias: {3}.
             { 0x04, "Counter latch position" },
             { 0x05, "Internal position in the ref. coord. sys." },
             { 0x06, "Target position" },
-            //{ 0x07, "" },
             { 0x08, "Feedback speed" },
             { 0x09, "Reference speed" },
             { 0x0A, "Target speed" },
             { 0x0B, "Torque reference" },
-            //{ 0x0C, "" },
-            //{ 0x0D, "" },
             { 0x0E, "Option monitor 1" },
             { 0x0F, "Option monitor 2" },
         };
+        public static readonly Dictionary<byte, string> AlarmData = new Dictionary<byte, string>
+        {
+            { 0x00, "Normal" },
+            { 0x01, "Invalid command" },
+            { 0x02, "Cmd not allowed" },
+            { 0x03, "Invalid data" },
+            { 0x04, "Sync error" },
+            { 0x05, "Transmission setting not supported" },
+            { 0x06, "Communication error (warning happened twice)" },
+            { 0x07, "Communication warning" },
+            { 0x08, "Transmission cycle changed during comm." }
+        };
+        public static Dictionary<int, string> StatusBitsSet = new Dictionary<int, string>
+        {
+            { 0, "Alarm" },
+            { 1, "Warning" },
+            { 3, "Servo ON" },
+            { 4, "Main PSU ON" },
+            { 6, "Inside Zero Point" },
+            { 7, "Pos./vel. reached" },
+            { 8, "Zero speed det./Ref out. completed" },
+            { 10, "Latch completed" },
+            { 11, "Inside pos./vel. limits" },
+            { 12, "Outside forward limit" },
+            { 13, "Outside reverse limit" }
+        };
+        public static Dictionary<int, string> StatusBitsUnset = new Dictionary<int, string>
+        {
+            { 2, "Busy" },
+            { 3, "Servo OFF" },
+            { 4, "Main PSU OFF" },
+            { 6, "Outside Zero Point" },
+            { 7, "Pos./vel. NOT reached" },
+            { 8, "Zero speed NOT det./ref. out NOT completed" },
+            { 10, "Latch NOT completed" },
+            { 11, "Outside pos./vel. limits" }
+        };
+        public static Dictionary<int, string> IOBitsSet = new Dictionary<int, string>
+        {
+            { 0, "Forward over-travel" },
+            { 1, "Reverse over-travel" },
+            { 2, "Deceleration limit switch ON" },
+            { 6, "First external latch ON" },
+            { 7, "Second external latch ON" },
+            { 8, "Third external latch ON" },
+            { 9, "Brake ON" },
+            { 12, "GPI 1 ON" },
+            { 13, "GPI 2 ON" },
+            { 14, "GPI 3 ON" },
+            { 15, "GPI 4 ON" }
+        };
+        public static Dictionary<int, string> IOBitsUnset = new Dictionary<int, string>
+        {
+            { 3, "Phase A OFF" },
+            { 4, "Phase B OFF" },
+            { 5, "Phase C OFF" },
+            { 9, "Brake OFF" }
+        };
 
+
+        /// <summary>
+        /// According to Sigma-II series manuals
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
         public static string MonitorSelectParser(byte[] bytes)
         {
             //This is a one-byte field
@@ -195,6 +278,54 @@ Name: {2}, alias: {3}.
             //Upper 4 bits determine Monitor2 response and the same for lower 4 bits and Monitor1
             return string.Format("MON_SEL(1,2): {0}, {1}",
                 MonitorSelectData[(byte)(data & 0x0F)], MonitorSelectData[(byte)(data >> 4)]);
+        }
+
+        /// <summary>
+        /// According to "Command specification for Stepper Motor"
+        /// It seems there's no publicly available specification for servos
+        /// </summary>
+        /// <param name="data"></param>
+        /// <returns></returns>
+        public static string AlarmParser(byte[] bytes)
+        {
+            //This is a single-byte field
+            byte data = bytes[0];
+            //There's is just a table of alarm codes
+            return AlarmData[data];
+        }
+    }
+
+    public class BitField : Field
+    {
+        public BitField(string name, params int[] bytes) : base(name, bytes)
+        { }
+        public BitField(string name, bool endianess, params int[] bytes) : base(name, endianess, bytes)
+        { }
+
+        //public new Func<int, bool, string> CustomParser { get; set; }
+        public Dictionary<int, string> BitsSetDesc { get; set; }
+        public Dictionary<int, string> BitsUnsetDesc { get; set; }
+
+        public override string GetReport(params byte[] bytes)
+        {
+            StringBuilder res = new StringBuilder(base.GetReport(bytes));  //This sets up "Field" headline and binary representation
+            //Now parse bits
+            bytes = bytes.Where((byte b, int i) => { return Bytes.Contains(i + 2); }).ToArray();
+            if (LittleEndian) bytes = bytes.Reverse().ToArray();
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                for (int j = 0; j < 8; j++)
+                {
+                    bool val = (bytes[i] & (1u << j)) != 0;
+                    Dictionary<int, string> dic = val ? BitsSetDesc : BitsUnsetDesc;
+                    if (dic != null)
+                    {
+                        int num = i * 8 + j;
+                        if (dic.ContainsKey(num)) res.AppendLine(string.Format("#{0}={1} - {2}", num, val ? '1' : '0' , dic[num]));
+                    }
+                }
+            }
+            return res.ToString();
         }
     }
 }

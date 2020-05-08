@@ -46,7 +46,7 @@ namespace MechatrolinkParser
                 }
                 catch (ArgumentOutOfRangeException)
                 {
-                    Program.ErrorListener.Add(new ArgumentException("Warning: incomplete bit sequence detected!"));
+                    ErrorListener.Add(new ArgumentException("Warning: incomplete bit sequence detected!"));
                     break;
                 }
             }
@@ -63,7 +63,7 @@ namespace MechatrolinkParser
             int len = bits.Count;
             if (len % 8 != 0)
             {
-                Program.ErrorListener.Add(new ArgumentException(string.Format(
+                ErrorListener.Add(new ArgumentException(string.Format(
                     "Warning: bit count at {0} is not a multiple 8. It will be truncated.", bits.Keys[0])));
                 len -= len % 8;
             }
@@ -99,7 +99,7 @@ namespace MechatrolinkParser
                 pulses.Add(data.Keys[i], data.Keys[i + 1] - data.Keys[i]);
             }
             //Look for the preamble: 16 transitions (15 pulses) approximately a period apart, starts with low-to-high, ends with high-to-low
-            SortedList<int, int> preambles = new SortedList<int, int>();
+            SortedList<int, int> preambles = new SortedList<int, int>(pulses.Count / 32); //Assuming the contents are at least as long as the preamble (16*2)
             int current = 0;
             for (int i = 0; i < pulses.Count; i++)
             {
@@ -129,7 +129,7 @@ namespace MechatrolinkParser
                 }
                 catch (ArgumentOutOfRangeException)
                 {
-                    Program.ErrorListener.Add(new ArgumentException(
+                    ErrorListener.Add(new ArgumentException(
                         "Warning: the bitstream contains an incomplete packet. It will be discarded."));
                     break;
                 }
@@ -141,30 +141,30 @@ namespace MechatrolinkParser
             //For each packet find transitions that fit into the timeslots
             //Adjust the clock at every recovered edge to prevent error accumulation
             int currentHigh = 0;
+            int lastIndex = 0;
             for (int i = 0; i < preambles.Count; i++)
             {
                 current = preambles.Values[i] + pl;      //Next data edge lower bound
                 currentHigh = preambles.Values[i] + ph;   //Next data edge higher bound
-                //Get rid of redundant bits   
-                while (data.Keys[0] < current)
+                for (int j = lastIndex; j < data.Count; j++)
                 {
-                    data.RemoveAt(0);
-                }
-                while (current < data.Keys.Last())
-                {
-                    try
+                    lastIndex = j;
+                    if (data.Keys[j] > current)
                     {
-                        KeyValuePair<int, bool> v = data.First(x => (x.Key > current && x.Key < currentHigh));
-                        bits.Add(v.Key, v.Value);
-                        current = v.Key + pl;
-                        currentHigh = v.Key + ph;
-                    }
-                    catch (InvalidOperationException)
-                    {
-                        break;
+                        if (data.Keys[j] < currentHigh)
+                        {
+                            bits.Add(data.Keys[j], data.Values[j]);
+                            current = data.Keys[j] + pl;
+                            currentHigh = data.Keys[j] + ph;
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
                 }
             }
+            bits.TrimExcess();
             return bits;
         }
         /// <summary>
