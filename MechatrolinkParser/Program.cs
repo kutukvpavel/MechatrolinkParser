@@ -19,8 +19,8 @@ namespace MechatrolinkParser
             {
                 Console.WriteLine(@"Not enough arguments. Usage:
 MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency, Hz> <Options>
-Options: [-e] = packet body endianess swap (default is 'big-endian')
-[-s] = silent (switch off progress reports)
+Options: [-e] = packet body endianess swap (default is 'big-endian'), usually not needed
+[-s] = silent (switch off progress reports/warnings)
 [-stm] = transcode the file into LogicSnifferSTM format
 [-f] = filter output (exclude nonsensical commands, e.g. with Control field equal to neither 01h nor 03h)
 Time limit and frequency are optional, defaults: 200000 and 4000000.");
@@ -31,8 +31,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             //DataReporter.ReportProgress("Parsing command line...");
             int limit = 200000;
             int freq = 4000000;
-            bool swap = false;
-            bool silent = false;
+            bool swap = false; 
             bool transcode = false;
             try
             {
@@ -46,7 +45,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                     }
                 }
                 swap = args.Contains("-e");
-                silent = args.Contains("-s");
+                DataReporter.EnableProgressOutput = !args.Contains("-s");
                 transcode = args.Contains("-stm");
                 DataReporter.FilterOutput = args.Contains("-f");
             }
@@ -57,13 +56,11 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 Console.ReadKey();
                 return 1;
             }
-            Console.WriteLine(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
+            DataReporter.ReportProgress(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
                 limit, freq, swap));
-
             DataReporter.ReportProgress("Parsing data...");
 
             LogicAnalyzerData data;
-
             try
             {
                 if (LogicAnalyzerData.DetectFormat(args[0]) == LogicAnalyzerData.Format.LogicSnifferSTM)
@@ -76,8 +73,11 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 }
                 var parsed = Communication.Parse(data, freq, swap);
 
-                Console.WriteLine(Environment.NewLine + "Warnings:");
-                Console.WriteLine(ErrorListener.ToString());
+                if (DataReporter.EnableProgressOutput && ErrorListener.Exceptions.Any())
+                {
+                    Console.WriteLine(Environment.NewLine + "Warnings:");
+                    Console.WriteLine(ErrorListener.ToString());
+                }
                 DataReporter.ReportProgress("Done." + Environment.NewLine);
                 Console.WriteLine(DataReporter.CreateReportString(parsed));
             }
