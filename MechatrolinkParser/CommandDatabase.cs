@@ -190,6 +190,9 @@ Name: {2}, alias: {3}.
     /// </summary>
     public static class CustomParsers
     {
+        /// <summary>
+        /// According to Sigma-II manuals
+        /// </summary>
         public static readonly Dictionary<byte, string> MonitorSelectData = new Dictionary<byte, string>
         {
             { 0x00, "Position in the ref. coord. sys." },
@@ -206,6 +209,10 @@ Name: {2}, alias: {3}.
             { 0x0E, "Option monitor 1" },
             { 0x0F, "Option monitor 2" },
         };
+        /// <summary>
+        /// According to general command specifications (servo/stepper-related)
+        /// Most devices use vendor-specific codes, that are allowed to start from 0x80
+        /// </summary>
         public static readonly Dictionary<byte, string> AlarmData = new Dictionary<byte, string>
         {
             { 0x00, "Normal" },
@@ -218,6 +225,9 @@ Name: {2}, alias: {3}.
             { 0x07, "Communication warning" },
             { 0x08, "Transmission cycle changed during comm." }
         };
+        /// <summary>
+        /// According to general command specifications (servo/stepper-related)
+        /// </summary>
         public static Dictionary<int, string> StatusBitsSet = new Dictionary<int, string>
         {
             { 0, "Alarm" },
@@ -232,6 +242,9 @@ Name: {2}, alias: {3}.
             { 12, "Outside forward limit" },
             { 13, "Outside reverse limit" }
         };
+        /// <summary>
+        /// According to general command specifications (servo/stepper-related)
+        /// </summary>
         public static Dictionary<int, string> StatusBitsUnset = new Dictionary<int, string>
         {
             { 2, "Busy" },
@@ -243,6 +256,10 @@ Name: {2}, alias: {3}.
             { 10, "Latch NOT completed" },
             { 11, "Outside pos./vel. limits" }
         };
+        /// <summary>
+        /// According to general command specifications (servo/stepper-related)
+        /// May differ for some devices!
+        /// </summary>
         public static Dictionary<int, string> IOBitsSet = new Dictionary<int, string>
         {
             { 0, "Forward over-travel" },
@@ -257,6 +274,10 @@ Name: {2}, alias: {3}.
             { 14, "GPI 3 ON" },
             { 15, "GPI 4 ON" }
         };
+        /// <summary>
+        /// According to general command specifications (servo/stepper-related)
+        /// May differ for some devices!
+        /// </summary>
         public static Dictionary<int, string> IOBitsUnset = new Dictionary<int, string>
         {
             { 3, "Phase A OFF" },
@@ -281,7 +302,7 @@ Name: {2}, alias: {3}.
         }
 
         /// <summary>
-        /// According to "Command specification for Stepper Motor"
+        /// According to general command specifications ("Command specification for Stepper Motors")
         /// It seems there's no publicly available specification for servos
         /// </summary>
         /// <param name="data"></param>
@@ -311,7 +332,7 @@ Name: {2}, alias: {3}.
             StringBuilder res = new StringBuilder(base.GetReport(bytes));  //This sets up "Field" headline and binary representation
             //Now parse bits
             bytes = bytes.Where((byte b, int i) => { return Bytes.Contains(i + 2); }).ToArray();
-            if (LittleEndian) bytes = bytes.Reverse().ToArray();
+            if (!LittleEndian) bytes = bytes.Reverse().ToArray();  //The following cycle reverses the order one again!
             for (int i = 0; i < bytes.Length; i++)
             {
                 for (int j = 0; j < 8; j++)
