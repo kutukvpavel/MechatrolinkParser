@@ -10,4 +10,4 @@ Supported logic analyzer export formats: Kingst .txt (similar to CSV), LogicSnif
 
 Output example:
 
-![example](https://i.imgur.com/6qcbgOA.png)
+![new example](https://i.imgur.com/YYoDWcb.png)
