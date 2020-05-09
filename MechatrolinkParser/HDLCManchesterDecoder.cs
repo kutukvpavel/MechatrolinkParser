@@ -18,6 +18,15 @@ namespace MechatrolinkParser
         public const byte Flag = 0x7E;
 
         /// <summary>
+        /// Instructs the parser to ignore last preamble (last packet) in case it's incomplete.
+        /// Defaults to true.
+        /// False forces the parser not to check if the next transition belongs to a new packet.
+        /// Therefore setting this to false will cause error if there are no "spaces" between the packets.
+        /// For mechatrolink the latter is not the case.
+        /// </summary>
+        public static bool IgnoreLastPreamble { get; set; } = true;
+
+        /// <summary>
         /// Remove zero bits stuffed in for transparency of the protocol
         /// </summary>
         /// <param name="data">Bool stand for already decoded bits, not just transitions</param>
@@ -136,37 +145,51 @@ namespace MechatrolinkParser
             }
             //Program.DataReporter.ReportProgress("Preambles parsed...");
             SortedList<int, bool> bits = new SortedList<int, bool>(data.Capacity);
-            //Preamble key = start timestamp, value = end timestamp
-            //Now shift a halfperiod to the right and divide the timeline into timeslots
-            //For each packet find transitions that fit into the timeslots
-            //Adjust the clock at every recovered edge to prevent error accumulation
-            int currentHigh = 0;
-            int lastIndex = 0;
-            for (int i = 0; i < preambles.Count; i++)
+            int lastPreamble = preambles.Count - 1;
+            //Btw, int current is now repurposed
+            current = 0;
+            for (int i = 0; i < lastPreamble; i++)
             {
-                current = preambles.Values[i] + pl;      //Next data edge lower bound
-                currentHigh = preambles.Values[i] + ph;   //Next data edge higher bound
-                for (int j = lastIndex; j < data.Count; j++)
-                {
-                    lastIndex = j;
-                    if (data.Keys[j] > current)
-                    {
-                        if (data.Keys[j] < currentHigh)
-                        {
-                            bits.Add(data.Keys[j], data.Values[j]);
-                            current = data.Keys[j] + pl;
-                            currentHigh = data.Keys[j] + ph;
-                        }
-                        else
-                        {
-                            break;
-                        }
-                    }
-                }
+                current = PartDecodeManchester(i, current, pl, ph, preambles, data, bits);
+            }
+            //To avoid processing overhead in previous cycle, process the last packet separately
+            if (!IgnoreLastPreamble)
+            {
+                PartDecodeManchester(lastPreamble, current, pl, ph, preambles, data, bits);
             }
             bits.TrimExcess();
             return bits;
         }
+        private static int PartDecodeManchester(int i, int lastIndex, int pl, int ph, 
+            SortedList<int, int> preambles, SortedList<int, bool> data, SortedList<int, bool> bits)
+        {
+            //Preamble key = start timestamp, value = end timestamp
+            //Now shift a halfperiod to the right and divide the timeline into timeslots
+            //For each packet find transitions that fit into the timeslots
+            //Adjust the clock at every recovered edge to prevent error accumulation
+            int current = preambles.Values[i] + pl;      //Next data edge lower bound
+            int currentHigh = preambles.Values[i] + ph;   //Next data edge higher bound
+            for (int j = lastIndex; j < data.Count; j++)
+            {
+                lastIndex = j; //Optimization purposes: To start next (packet) processing after the last one ended
+                if (data.Keys[j] >= preambles.Keys[i + 1]) break; //Detect next packet start
+                if (data.Keys[j] > current) //Timeslot fit
+                {
+                    if (data.Keys[j] < currentHigh)
+                    {
+                        bits.Add(data.Keys[j], data.Values[j]);
+                        current = data.Keys[j] + pl;
+                        currentHigh = data.Keys[j] + ph;
+                    }
+                    else
+                    {
+                        break;
+                    }
+                }
+            }
+            return lastIndex;
+        }
+
         /// <summary>
         /// Searches for flags and extracts contents of the packets.
         /// </summary>

@@ -60,6 +60,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="BulkProcessing.cs" />
     <Compile Include="CommandDatabase.cs" />
     <Compile Include="HDLCManchesterDecoder.cs" />
     <Compile Include="MechatrolinkStructures.cs" />
