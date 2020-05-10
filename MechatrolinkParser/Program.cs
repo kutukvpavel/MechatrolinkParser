@@ -287,7 +287,9 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
         {
             byte command = packet.Command.ParsedFields[(byte)Command.Fields.Code][0];
             if (command == 0x0D || command == 0x0E || command == 0x0F) return false;
-            if (packet.ParsedData[(int)Packet.Fields.Address][0] == 0x00) return true;
+            byte addr = packet.ParsedData[(int)Packet.Fields.Address][0];
+            if (addr == 0x00) return true;
+            if (addr == CommandDatabase.SyncFrameAddress) return false;
             byte control = packet.ParsedData[(int)Packet.Fields.Control][0];
             if (control != CommandDatabase.RequestControlCode && control != CommandDatabase.ResponseControlCode) return true;
             return false;
