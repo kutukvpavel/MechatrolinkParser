@@ -11,25 +11,25 @@ namespace MechatrolinkParser
     {
         static int Main(string[] args)
         {
-#if DEBUG
-            args = new string[] { @"E:\startup.txt", "10000000" };
-#endif
-
+            Console.OutputEncoding = Encoding.UTF8;
             if (args.Length < 1)
             {
                 Console.WriteLine(@"Not enough arguments. Usage:
-MechatrolinkParser.exe <Exported text file path> <Time limit, x10nS> <Frequency, Hz> <Options>
+MechatrolinkParser.exe <Exported text file path> <Line limit> <Frequency, Hz> <Options>
+Limit and frequency are optional, defaults: 20000 and 4000000. Use limit = 0 to disable the limit.
 Options: [-e] = packet body endianess swap (default is 'big-endian'), usually not needed
 [-s] = silent (switch off progress reports/warnings)
 [-stm] = transcode the file into LogicSnifferSTM format
 [-f] = filter output (exclude nonsensical commands, e.g. with Control field equal to neither 01h nor 03h)
-Time limit and frequency are optional, defaults: 200000 and 4000000.");
+[-b] = bulk (folder) processing, <file path> argument field becomes <directory path>, other argument fields are not changed
+[-p] = parallel computation in bulk mode
+");
                 Console.ReadLine();
                 return 1;
             }
 
             //DataReporter.ReportProgress("Parsing command line...");
-            int limit = 200000;
+            int limit = 20000;
             int freq = 4000000;
             bool swap = false; 
             bool transcode = false;
@@ -39,6 +39,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 if (args.Length > 1)
                 {
                     limit = int.Parse(args[1]);
+                    if (limit == 0) limit = int.MaxValue;
                     if (args.Length > 2)
                     {
                         freq = int.Parse(args[2]);
@@ -48,6 +49,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 DataReporter.EnableProgressOutput = !args.Contains("-s");
                 transcode = args.Contains("-stm");
                 DataReporter.FilterOutput = args.Contains("-f");
+                BulkProcessing.UseParallelComputation = args.Contains("-p");
             }
             catch (Exception e)
             {
@@ -58,8 +60,10 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             }
             DataReporter.ReportProgress(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
                 limit, freq, swap));
-            DataReporter.ReportProgress("Parsing data...");
+            if (args.Contains("-b"))
+                return BulkMain(args[0], limit, freq, string.Join(" ", args.Skip(3).Where(x => x != "-b")));
 
+            DataReporter.ReportProgress("Parsing data...");
             LogicAnalyzerData data;
             try
             {
@@ -85,7 +89,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             {
                 Console.WriteLine("Unable to parse the data:");
                 Console.WriteLine(e.ToString());
-                Console.ReadKey();
+                //Console.ReadKey();
                 return 2;
             }
 
@@ -100,15 +104,13 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 {
                     Console.WriteLine("Unable to transcode the file:");
                     Console.WriteLine(e.ToString());
-                    Console.ReadKey();
+                    //Console.ReadKey();
                     return 3;
                 }
             }
-
 #if DEBUG
-            Console.ReadKey();
+            if (args.Contains("-b")) Console.ReadKey();
 #endif
-
             return 0;
         }
 
@@ -117,6 +119,11 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             string target = Path.GetFileName(filePath);
             target = filePath.Replace(target, target.Replace(".", "_backup."));
             File.Copy(filePath, target);
+        }
+
+        public static int BulkMain(string dir, int lim, int freq, string flags)
+        {
+            return BulkProcessing.ProcessDirectory(dir, lim, freq, "*.txt", flags) ? 0 : 2;
         }
     }
 
@@ -159,6 +166,10 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             LogicSnifferSTM,
             Unknown
         }
+        /// <summary>
+        /// Switches time/line limit
+        /// </summary>
+        public static bool UseTimeLimit { get; set; } = false;
 
         private LogicAnalyzerData(SortedList<int, bool> list) : base(list)
         { }
@@ -174,17 +185,18 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             return Format.Unknown;
         }
 
-        public static LogicAnalyzerData CreateFromLogicSnifferSTM(string filePath, int timeLimit = int.MaxValue)
+        public static LogicAnalyzerData CreateFromLogicSnifferSTM(string filePath, int limit = int.MaxValue)
         {
             string[] fileContents = File.ReadAllLines(filePath);
-            SortedList<int, bool> result = new SortedList<int, bool>(fileContents.Length - 1);
-            for (int i = fileContents[0].Contains(':') ? 0 : 1; i < fileContents.Length; i++)
+            int lineLimit = UseTimeLimit ? fileContents.Length : limit;
+            SortedList<int, bool> result = new SortedList<int, bool>(lineLimit - 1);
+            for (int i = fileContents[0].Contains(':') ? 0 : 1; i < lineLimit; i++)
             {
                 string[] split = fileContents[i].Split(':');
                 try
                 {
                     int temp = int.Parse(split[0]);
-                    if (temp > timeLimit) break;
+                    if (UseTimeLimit) if (temp > limit) break;
                     result.Add(int.Parse(split[0]), int.Parse(split[1]) > 0);
                 }
                 catch (FormatException e)
@@ -195,11 +207,12 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
             return new LogicAnalyzerData(result);
         }
 
-        public static LogicAnalyzerData CreateFromKingst(string filePath, int timeLimit = int.MaxValue)
+        public static LogicAnalyzerData CreateFromKingst(string filePath, int limit = int.MaxValue)
         {
             string[] fileContents = File.ReadAllLines(filePath);
-            SortedList<int, bool> result = new SortedList<int, bool>(fileContents.Length - 1);
-            for (int i = 1; i < fileContents.Length; i++)
+            int lineLimit = UseTimeLimit ? fileContents.Length : limit;
+            SortedList<int, bool> result = new SortedList<int, bool>(lineLimit - 1);
+            for (int i = 1; i < lineLimit; i++)
             {
                 string[] split = fileContents[i].Split(',');
                 split[0] = split[0].Replace(".", ""); //Switch to fixed-point arithmetic
@@ -207,7 +220,7 @@ Time limit and frequency are optional, defaults: 200000 and 4000000.");
                 try
                 {
                     int temp = int.Parse(split[0]);
-                    if (temp > timeLimit) break;
+                    if (UseTimeLimit) if (temp > limit) break;
                     result.Add(int.Parse(split[0]), int.Parse(split[1]) > 0);
                 }
                 catch (FormatException e)
