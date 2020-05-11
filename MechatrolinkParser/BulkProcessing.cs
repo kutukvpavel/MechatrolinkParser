@@ -19,6 +19,7 @@ namespace MechatrolinkParser
         /// </summary>
         public static string NameModificationFormat { get; set; } = "{0}_parsed{1}";
         public static bool UseParallelComputation { get; set; } = false;
+        public static string ReportsExtension { get; set; } = ".ptxt";
 
         /// <summary>
         /// Invokes multiple MechatrolinkParser instances
@@ -27,7 +28,7 @@ namespace MechatrolinkParser
         /// <param name="directory">Input directory (all inner directories are included into file search)</param>
         /// <param name="limit">Ordinary command line argument: time limit</param>
         /// <param name="freq">Ordinary command line argument: communication frequency</param>
-        /// <param name="search">Native FS search string, on Windows for example "*.txt"</param>
+        /// <param name="search">Limited to ? and * wildcards, for example "*.txt"</param>
         /// <param name="flags">String of command line switches that go after limit and frequency, separated with whitespaces</param>
         public static bool ProcessDirectory(string directory, int limit, int freq, string search, string flags)
         {
@@ -121,7 +122,7 @@ Error details: {1}", psi.Arguments, e.ToString()));
         private static string NameModifier(string original)
         {
             return original.Replace(Path.GetFileName(original),
-                string.Format(NameModificationFormat, Path.GetFileNameWithoutExtension(original), Path.GetExtension(original)));
+                string.Format(NameModificationFormat, Path.GetFileNameWithoutExtension(original), ReportsExtension));
         }
     }
 }

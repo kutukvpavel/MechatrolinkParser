@@ -38,6 +38,9 @@ namespace MechatrolinkParser
             var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
             //DataReporter.ReportProgress("Manchester layer decoded...");
             var packets = HDLCManchesterDecoder.SeparatePackets(tempDecoded);
+            tempDecoded.Clear(); //Not needed anymore
+            tempDecoded.TrimExcess();
+            GC.Collect();
             DataReporter.ReportProgress("HDLC layer decoded...");
             Packet[] decoded = new Packet[packets.Length];
             for (int i = 0; i < packets.Length; i++)

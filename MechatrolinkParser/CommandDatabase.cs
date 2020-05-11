@@ -13,9 +13,12 @@ namespace MechatrolinkParser
             Status,
             Alarm,
             MonitorSelect,
+            IO,
+            TargetPosition,
             Monitor1,
             Monitor2,
-            IO
+            FeedForwardSpeed,
+            Option
         }
 
         public const byte ResponseControlCode = 0x01;
@@ -47,7 +50,12 @@ namespace MechatrolinkParser
                         BitsSetDesc = CustomParsers.IOBitsSet,
                         BitsUnsetDesc = CustomParsers.IOBitsUnset
                     }
-                }
+                },
+                { CommonFieldTypes.TargetPosition, new Field("TPOS", true, 5, 6, 7, 8) },
+                { CommonFieldTypes.Monitor1, new Field("MONITOR1", true, 5, 6, 7, 8) },
+                { CommonFieldTypes.Monitor2, new Field("MONITOR2", true, 9, 10, 11, 12) },
+                { CommonFieldTypes.FeedForwardSpeed, new Field("VFF", true, 9, 10, 11, 12) },
+                { CommonFieldTypes.Option, new Field("OPTION", 3, 4) }
             };
             Database = new List<CommandInfo>()
             {
@@ -72,10 +80,77 @@ namespace MechatrolinkParser
                     {
                         CommonFields[CommonFieldTypes.Alarm],
                         CommonFields[CommonFieldTypes.Status],
-                        new Field("MONITOR1", 5, 6, 7, 8),
-                        new Field("MONITOR2", 9, 10, 11, 12),
+                        CommonFields[CommonFieldTypes.Monitor1],
+                        CommonFields[CommonFieldTypes.Monitor2],
                         CommonFields[CommonFieldTypes.MonitorSelect],
                         CommonFields[CommonFieldTypes.IO]
+                    }
+                ),
+                new CommandInfo("INTERPOLATE", "Synchronous positioning", 0x34,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.Option],
+                        CommonFields[CommonFieldTypes.TargetPosition],
+                        CommonFields[CommonFieldTypes.FeedForwardSpeed]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.IO],
+                        CommonFields[CommonFieldTypes.Monitor1],
+                        CommonFields[CommonFieldTypes.Monitor2]
+                    }
+                ),
+                new CommandInfo("SV_ON", "Turn servo ON", 0x31,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Option],
+                        CommonFields[CommonFieldTypes.MonitorSelect]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.IO],
+                        CommonFields[CommonFieldTypes.Monitor1],
+                        CommonFields[CommonFieldTypes.Monitor2]
+                    }
+                ),
+                new CommandInfo("SV_OFF", "Turn servo OFF", 0x32,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.MonitorSelect]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.IO],
+                        CommonFields[CommonFieldTypes.Monitor1],
+                        CommonFields[CommonFieldTypes.Monitor2]
+                    }
+                ),
+                new CommandInfo("POSING", "Async positioning", 0x35,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.Option],
+                        CommonFields[CommonFieldTypes.TargetPosition],
+                        new Field("TSPD", 9, 10, 11, 12)
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.MonitorSelect],
+                        CommonFields[CommonFieldTypes.IO],
+                        CommonFields[CommonFieldTypes.Monitor1],
+                        CommonFields[CommonFieldTypes.Monitor2]
                     }
                 )
             }.ToDictionary(x => x.Code);
@@ -280,9 +355,9 @@ Name: {2}, alias: {3}.
         /// </summary>
         public static Dictionary<int, string> IOBitsUnset = new Dictionary<int, string>
         {
-            { 3, "Phase A OFF" },
-            { 4, "Phase B OFF" },
-            { 5, "Phase C OFF" },
+            //{ 3, "Phase A OFF" },  not true for SGDM
+            //{ 4, "Phase B OFF" },
+            //{ 5, "Phase C OFF" },
             { 9, "Brake OFF" }
         };
 

@@ -21,8 +21,9 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 [-s] = silent (switch off progress reports/warnings)
 [-stm] = transcode the file into LogicSnifferSTM format
 [-f] = filter output (exclude nonsensical commands, e.g. with Control field equal to neither 01h nor 03h)
-[-b] = bulk (folder) processing, <file path> argument field becomes <directory path>, other argument fields are not changed
+[-b] = bulk (folder) processing, <file path> argument field becomes <""directory path|search string"">, other argument fields are not changed
 [-p] = parallel computation in bulk mode
+[-k] = keep console windows open (Console.ReadKey())
 ");
                 Console.ReadLine();
                 return 1;
@@ -44,26 +45,25 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                     {
                         freq = int.Parse(args[2]);
                     }
-                }
-                swap = args.Contains("-e");
-                DataReporter.EnableProgressOutput = !args.Contains("-s");
-                transcode = args.Contains("-stm");
+                }                                      
                 DataReporter.FilterOutput = args.Contains("-f");
+                DataReporter.EnableProgressOutput = !args.Contains("-s");
                 BulkProcessing.UseParallelComputation = args.Contains("-p");
+                if (args.Contains("-b"))
+                    return BulkMain(args, limit, freq);
+                swap = args.Contains("-e");
+                transcode = args.Contains("-stm");
             }
             catch (Exception e)
             {
                 Console.WriteLine("Unable to parse command line:");
                 Console.WriteLine(e.ToString());
-                Console.ReadKey();
-                return 1;
+                return ReturnHelper(1, args);
             }
             DataReporter.ReportProgress(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
                 limit, freq, swap));
-            if (args.Contains("-b"))
-                return BulkMain(args[0], limit, freq, string.Join(" ", args.Skip(3).Where(x => x != "-b")));
 
-            DataReporter.ReportProgress("Parsing data...");
+            DataReporter.ReportProgress("Loading data...");
             LogicAnalyzerData data;
             try
             {
@@ -75,7 +75,10 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 {
                     data = LogicAnalyzerData.CreateFromKingst(args[0], limit);
                 }
+                GC.Collect();
+                DataReporter.ReportProgress("Parsing data...");
                 var parsed = Communication.Parse(data, freq, swap);
+                GC.Collect();
 
                 if (DataReporter.EnableProgressOutput && ErrorListener.Exceptions.Any())
                 {
@@ -88,9 +91,8 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             catch (Exception e)
             {
                 Console.WriteLine("Unable to parse the data:");
-                Console.WriteLine(e.ToString());
-                //Console.ReadKey();
-                return 2;
+                Console.WriteLine(e.ToString()); 
+                return ReturnHelper(2, args);
             }
 
             if (transcode)
@@ -103,27 +105,43 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 catch (Exception e)
                 {
                     Console.WriteLine("Unable to transcode the file:");
-                    Console.WriteLine(e.ToString());
-                    //Console.ReadKey();
-                    return 3;
+                    Console.WriteLine(e.ToString());  
+                    return ReturnHelper(3, args);
                 }
             }
-#if DEBUG
-            if (args.Contains("-b")) Console.ReadKey();
-#endif
-            return 0;
+            return ReturnHelper(0, args);
+        }
+
+        public static int ReturnHelper(int code, string[] args)
+        {
+            if (args.Contains("-k")) Console.ReadKey();
+            return code;
         }
 
         public static void MakeBackupCopy(string filePath)
         {
             string target = Path.GetFileName(filePath);
-            target = filePath.Replace(target, target.Replace(".", "_backup."));
+            target = filePath.Replace(target, 
+                string.Format("{0}_backup{1}", Path.GetFileNameWithoutExtension(filePath), Path.GetExtension(filePath)));
             File.Copy(filePath, target);
         }
 
-        public static int BulkMain(string dir, int lim, int freq, string flags)
+        public static int BulkMain(string[] args, int lim, int freq)
         {
-            return BulkProcessing.ProcessDirectory(dir, lim, freq, "*.txt", flags) ? 0 : 2;
+            if (args.Contains("-f"))
+                BulkProcessing.NameModificationFormat = "{0}_parsed_filtered{1}";
+            try
+            {
+                string[] split = args[0].Split('|');
+                return ReturnHelper(BulkProcessing.ProcessDirectory(split[0], lim, freq, split[1],
+                    string.Join(" ", args.Skip(3).Where(x => x != "-b")))
+                    ? 0 : 2, args);
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Bulk processing error: " + e.ToString());
+            }
+            return ReturnHelper(1, args);
         }
     }
 
@@ -152,93 +170,6 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 res.AppendLine();
             }
             return res.ToString();
-        }
-    }
-
-    /// <summary>
-    /// Key is x10nS
-    /// </summary>
-    public class LogicAnalyzerData : SortedList<int, bool>
-    {
-        public enum Format
-        {
-            KingstTXT,
-            LogicSnifferSTM,
-            Unknown
-        }
-        /// <summary>
-        /// Switches time/line limit
-        /// </summary>
-        public static bool UseTimeLimit { get; set; } = false;
-
-        private LogicAnalyzerData(SortedList<int, bool> list) : base(list)
-        { }
-
-        public static Format DetectFormat(string filePath)
-        {
-            TextReader reader = new StreamReader(filePath);
-            reader.ReadLine();     //Skip header in case there is one
-            //LogicSnifferSTM uses colons to separate columns, Kingst uses commas
-            string line = reader.ReadLine();
-            if (line.Contains(':')) return Format.LogicSnifferSTM;
-            if (line.Count(x => x == ',') == 1) return Format.KingstTXT;
-            return Format.Unknown;
-        }
-
-        public static LogicAnalyzerData CreateFromLogicSnifferSTM(string filePath, int limit = int.MaxValue)
-        {
-            string[] fileContents = File.ReadAllLines(filePath);
-            int lineLimit = UseTimeLimit ? fileContents.Length : limit;
-            SortedList<int, bool> result = new SortedList<int, bool>(lineLimit - 1);
-            for (int i = fileContents[0].Contains(':') ? 0 : 1; i < lineLimit; i++)
-            {
-                string[] split = fileContents[i].Split(':');
-                try
-                {
-                    int temp = int.Parse(split[0]);
-                    if (UseTimeLimit) if (temp > limit) break;
-                    result.Add(int.Parse(split[0]), int.Parse(split[1]) > 0);
-                }
-                catch (FormatException e)
-                {
-                    ErrorListener.Add(new Exception("Can't parse LogicSnifferSTM data line: " + fileContents[i], e));
-                }
-            }
-            return new LogicAnalyzerData(result);
-        }
-
-        public static LogicAnalyzerData CreateFromKingst(string filePath, int limit = int.MaxValue)
-        {
-            string[] fileContents = File.ReadAllLines(filePath);
-            int lineLimit = UseTimeLimit ? fileContents.Length : limit;
-            SortedList<int, bool> result = new SortedList<int, bool>(lineLimit - 1);
-            for (int i = 1; i < lineLimit; i++)
-            {
-                string[] split = fileContents[i].Split(',');
-                split[0] = split[0].Replace(".", ""); //Switch to fixed-point arithmetic
-                split[1] = split[1].TrimStart();
-                try
-                {
-                    int temp = int.Parse(split[0]);
-                    if (UseTimeLimit) if (temp > limit) break;
-                    result.Add(int.Parse(split[0]), int.Parse(split[1]) > 0);
-                }
-                catch (FormatException e)
-                {
-                    ErrorListener.Add(new Exception("Can't parse Kingst data line: " + fileContents[i], e));
-                }
-            }
-            return new LogicAnalyzerData(result);
-        }
-
-        public static void WriteToLogicSnifferSTM(LogicAnalyzerData data, string filePath)
-        {
-            TextWriter writer = new StreamWriter(filePath);
-            for (int i = 0; i < data.Count; i++)
-            {
-                writer.WriteLine("{0}:{1}\r\n", data.Keys[i], data.Values[i] ? '1' : '0');
-            }
-            writer.Close();
         }
     }
 
