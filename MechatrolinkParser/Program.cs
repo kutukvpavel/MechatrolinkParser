@@ -19,6 +19,7 @@ MechatrolinkParser.exe <Exported text file path> <Line limit> <Frequency, Hz> <O
 Limit and frequency are optional, defaults: 20000 and 4000000. Use limit = 0 to disable the limit.
 Options: [-e] = packet body endianess swap (default is 'big-endian'), usually not needed
 [-s] = silent (switch off progress reports/warnings)
+[-x] = full exception info (defaults to distinct exception output)
 [-stm] = transcode the file into LogicSnifferSTM format
 [-f] = filter output (exclude nonsensical commands, e.g. with Control field equal to neither 01h nor 03h)
 [-b] = bulk (folder) processing, <file path> argument field becomes <""directory path|search string"">, other argument fields are not changed
@@ -49,6 +50,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 DataReporter.FilterOutput = args.Contains("-f");
                 DataReporter.EnableProgressOutput = !args.Contains("-s");
                 BulkProcessing.UseParallelComputation = args.Contains("-p");
+                ErrorListener.PrintOnlyDistinctExceptions = !args.Contains("-x");
                 if (args.Contains("-b"))
                     return BulkMain(args, limit, freq);
                 swap = args.Contains("-e");
@@ -147,6 +149,8 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 
     public static class ErrorListener
     {
+        public static bool PrintOnlyDistinctExceptions { get; set; } = true;
+
         private static List<Exception> list = new List<Exception>();
         public static Exception[] Exceptions
         {
@@ -163,13 +167,41 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
         public static new string ToString()
         {
             StringBuilder res = new StringBuilder();
-            foreach (var item in list)
+            var data = list;
+            if (PrintOnlyDistinctExceptions)
+            {
+                ExceptionComparer comparer = new ExceptionComparer();
+                data = data.Distinct(comparer).ToList();
+            }
+            foreach (var item in data)
             {
                 res.AppendFormat("{0}: {1}" + Environment.NewLine,
                     item.Message, item.InnerException != null ? item.InnerException.Message : "");
                 res.AppendLine();
             }
             return res.ToString();
+        }
+
+        private class ExceptionComparer : IEqualityComparer<Exception>
+        {
+            public bool Equals(Exception x, Exception y)
+            {
+                bool current = (x.GetType() == y.GetType()) && (x.Message == y.Message);
+                bool inner = (x.InnerException.GetType() == y.InnerException.GetType()) &&
+                    (x.InnerException.Message == y.InnerException.Message);
+                return current && inner;
+            }
+
+            public int GetHashCode(Exception obj)
+            {
+                int res = obj.GetType().GetHashCode();
+                unchecked
+                {
+                    res = res * 31 + obj.Message.GetHashCode();
+                    res = res * 31 + obj.InnerException.Message.GetHashCode();
+                }
+                return  res;
+            }
         }
     }
 
