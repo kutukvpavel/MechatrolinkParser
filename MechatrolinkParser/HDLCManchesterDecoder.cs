@@ -1,9 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Data.HashFunction.CRC;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MechatrolinkParser
 {
@@ -25,6 +22,8 @@ namespace MechatrolinkParser
         /// For mechatrolink the latter is not the case.
         /// </summary>
         public static bool IgnoreLastPreamble { get; set; } = true;
+
+        public static int PreambleLength { get; set; } = 16;
 
         /// <summary>
         /// Remove zero bits stuffed in for transparency of the protocol
@@ -126,10 +125,14 @@ namespace MechatrolinkParser
                 }
                 try
                 {
-                    if (current == 15)
-                    //Next (last) transition is followed by a period/2 pulse, because the flag field starts with 0 (high-to-low).
+                    if (current == (PreambleLength - 1))
+                    //Next (last) transition is determined by the number of preamble bits (assuming the preamble starts with 0)
+                    //Because preamble is there for a DPLL to lock on the embedded clock, and therefore has to be a
+                    //010101010... pattern (2MHz, but phase-aligned!)
                     {
-                        if (!data[pulses.Keys[i + 1]])
+                        if (PreambleLength % 2 == 0 ? 
+                            (!data[pulses.Keys[i + 1]] && pulses.Values[i + 1] < pl) : //Meaningless transition between two zeros
+                            (data[pulses.Keys[i + 1]] && pulses.Values[i + 1] > pl && pulses.Values[i + 1] < ph))
                         {
                             preambles.Add(pulses.Keys[i - 15], pulses.Keys[i + 1]);
                         }

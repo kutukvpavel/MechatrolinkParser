@@ -2,8 +2,6 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace MechatrolinkParser
 {
@@ -59,7 +57,7 @@ namespace MechatrolinkParser
             return new LogicAnalyzerData(result);
         }
 
-        public static LogicAnalyzerData CreateFromKingst(string filePath, int limit = int.MaxValue)
+        public static LogicAnalyzerData CreateFromKingst(string filePath, int columnIndex, int limit = int.MaxValue)
         {
             if (limit < int.MaxValue) limit++; //Take header into account
             string[] fileContents;
@@ -69,7 +67,7 @@ namespace MechatrolinkParser
             {
                 string[] split = fileContents[i].Split(',');
                 split[0] = split[0].Replace(".", ""); //Switch to fixed-point arithmetic
-                split[1] = split[1].TrimStart();
+                split[1] = split[columnIndex].TrimStart();
                 try
                 {
                     int temp = int.Parse(split[0]);
@@ -108,6 +106,16 @@ namespace MechatrolinkParser
             }
             result = new SortedList<int, bool>(limit - 1);
             return limit;
+        }
+
+        public LogicAnalyzerData Invert()
+        {
+            var res = new SortedList<int, bool>(Count);
+            foreach (var item in this)
+            {
+                res.Add(item.Key, !item.Value);
+            }
+            return new LogicAnalyzerData(res);
         }
     }
 }

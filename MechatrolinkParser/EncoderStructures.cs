@@ -7,9 +7,9 @@ namespace MechatrolinkParser
     /// <summary>
     /// Top-level entity
     /// </summary>
-    public class MechatrolinkCommunication
+    public class EncoderCommunication
     {
-        protected MechatrolinkCommunication(MechatrolinkPacket[] data, int period)
+        protected EncoderCommunication(EncoderPacket[] data, int period)
         {
             Packets = data.ToArray();
             Period = period;
@@ -20,7 +20,7 @@ namespace MechatrolinkParser
         /// </summary>
         public int Period { get; private set; }
 
-        public MechatrolinkPacket[] Packets { get; private set; }
+        public EncoderPacket[] Packets { get; private set; }
 
         /// <summary>
         /// Gets raw logic analyzer data (edges) and does complete decoding.
@@ -31,7 +31,7 @@ namespace MechatrolinkParser
         /// Experience suggests that body bytes on their own are transmitted as big-endian,
         /// though multibyte data pieces inside the body might be encoded as little-endian.</param>
         /// <returns></returns>
-        public static MechatrolinkCommunication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
+        public static EncoderCommunication Parse(SortedList<int, bool> list, int frequency, bool littleEndian = false)
         {
             var tempDecoded = HDLCManchesterDecoder.Decode(list, frequency, 0.25);
             //DataReporter.ReportProgress("Manchester layer decoded...");
@@ -40,24 +40,24 @@ namespace MechatrolinkParser
             tempDecoded.TrimExcess();
             GC.Collect();
             DataReporter.ReportProgress("HDLC layer decoded...");
-            MechatrolinkPacket[] decoded = new MechatrolinkPacket[packets.Length];
+            EncoderPacket[] decoded = new EncoderPacket[packets.Length];
             for (int i = 0; i < packets.Length; i++)
             {
                 byte[] temp = HDLCManchesterDecoder.PackIntoBytes(
                     HDLCManchesterDecoder.DestuffZeroes(packets[i])).Values.ToArray();
                 //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
-                decoded[i] = MechatrolinkPacket.Parse(temp, packets[i].Keys.First(), littleEndian);
+                decoded[i] = EncoderPacket.Parse(temp, packets[i].Keys.First(), littleEndian);
                 //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));
             }
             DataReporter.ReportProgress("Packets parsed...");
-            return new MechatrolinkCommunication(decoded, (int)Math.Round(1E8 / frequency));
+            return new EncoderCommunication(decoded, (int)Math.Round(1E8 / frequency));
         }
     }
 
     /// <summary>
     /// Single packet (with flags and preambles already removed)
     /// </summary>
-    public class MechatrolinkPacket
+    public class EncoderPacket
     {
         /// <summary>
         /// Properly ordered, starting from 0, subcommand separated as an independent field.
@@ -65,10 +65,7 @@ namespace MechatrolinkParser
         /// </summary>
         public enum Fields
         {
-            Address,
-            Control,
-            CommandData,
-            SubcommandData,
+            Unknown,
             FCS
         }
         /// <summary>
@@ -76,17 +73,13 @@ namespace MechatrolinkParser
         /// </summary>
         public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
         {
-            { Fields.Address, 1 },
-            { Fields.Control, 1 },
-            { Fields.CommandData, 16 },
-            { Fields.SubcommandData, 15 },
+            { Fields.Unknown, 17 },
             { Fields.FCS, 2 }
-
         };
         /// <summary>
         /// Without subcommand (bytes)
         /// </summary>
-        public const int OrdinaryPacketLength = 20;
+        public const int OrdinaryPacketLength = 19;
         /// <summary>
         /// With a subcommand (bytes)
         /// </summary>
@@ -94,20 +87,20 @@ namespace MechatrolinkParser
         /// <summary>
         /// Exclude subcommand fields for ordinary packets
         /// </summary>
-        public static readonly Fields[] OrdinaryPacketFieldsToExclude = { Fields.SubcommandData };
+        public static readonly Fields[] OrdinaryPacketFieldsToExclude = { };
 
-        protected MechatrolinkPacket(byte[][] d, MechatrolinkCommand cmd)
+        protected EncoderPacket(byte[][] d, EncoderCommand cmd)
         {
             ParsedData = d.Select(x => (x != null) ? x.ToArray() : null).ToArray();
             Command = cmd;
         }
-        protected MechatrolinkPacket(byte[][] d, MechatrolinkCommand cmd, int time) : this(d, cmd)
+        protected EncoderPacket(byte[][] d, EncoderCommand cmd, int time) : this(d, cmd)
         {
             Timestamp = time;
         }
 
         public byte[][] ParsedData { get; private set; }
-        public MechatrolinkCommand Command { get; private set; }
+        public EncoderCommand Command { get; private set; }
         public byte[] ComputedFCS { get; private set; }
         public string DatabaseReport { get; private set; }
         public bool FCSError { get; private set; }
@@ -123,7 +116,7 @@ namespace MechatrolinkParser
         /// <param name="time">x10nS</param>
         /// <param name="littleEndian">See Communications.Parse</param>
         /// <returns></returns>
-        public static MechatrolinkPacket Parse(byte[] data, int time, bool littleEndian = false)
+        public static EncoderPacket Parse(byte[] data, int time, bool littleEndian = false)
         {
             bool containsSub = data.Length > OrdinaryPacketLength;
             byte[][] result = new byte[FieldLength.Count][];
@@ -131,7 +124,7 @@ namespace MechatrolinkParser
             int current = 0;
             for (int i = 0; i < FieldLength.Count; i++)
             {
-                if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;   
+                if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;
                 int l = FieldLength[(Fields)i];
                 result[i] = new byte[l];
                 //Multibyte fields may be little-endian at physical layer (in fact they should be, but it turns out they're not...)
@@ -143,41 +136,33 @@ namespace MechatrolinkParser
                 }
                 current += l;
             }
-            var toParse = result[(int)Fields.CommandData];
-            if (containsSub) toParse = toParse.Concat(result[(int)Fields.SubcommandData]).ToArray();
-            var packet = new MechatrolinkPacket(result, MechatrolinkCommand.Parse(toParse), time);
+            var toParse = result[(int)Fields.Unknown];
+            //if (containsSub) toParse = toParse.Concat(result[(int)Fields.SubcommandData]).ToArray();
+            var packet = new EncoderPacket(result, EncoderCommand.Parse(toParse), time);
             packet.ComputedFCS = HDLCManchesterDecoder.ComputeFCS(fcs.ToArray());
             packet.FCSError = !packet.ComputedFCS.SequenceEqual(packet.ParsedData[(int)Fields.FCS]);
-            packet.DatabaseReport = MechatrolinkCommandDatabase.GetReport(packet);
+            packet.DatabaseReport = EncoderCommandDatabase.GetReport(packet);
             return packet;
         }
     }
     /// <summary>
     /// Single command body (address and other headers/trailers removed)
     /// </summary>
-    public class MechatrolinkCommand
+    public class EncoderCommand
     {
         /// <summary>
         /// Ordered
         /// </summary>
         public enum Fields
         {
-            Code,
-            Data,
-            WDT,
-            SubcommandCode,
-            SubcommandData
+            Unknown
         }
         /// <summary>
         /// In bytes
         /// </summary>
         public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
         {
-            { Fields.Code, 1 },
-            { Fields.Data, 14 },
-            { Fields.WDT, 1 },
-            { Fields.SubcommandCode, 1 },
-            { Fields.SubcommandData, 14 }
+            { Fields.Unknown, 17 }
         };
         /// <summary>
         /// Bytes, without a subcommand
@@ -186,16 +171,16 @@ namespace MechatrolinkParser
         {
             get
             {
-                return FieldLength[Fields.Code] + FieldLength[Fields.Data] + FieldLength[Fields.WDT];
+                return FieldLength[Fields.Unknown];
             }
         }
         /// <summary>
         /// Without subcommand (in fields! it's just a coincidence that those fields are 1-byte-long)
         /// </summary>
-        public const int MainCommandFieldsCount = 3;
+        public const int MainCommandFieldsCount = 1;
 
 
-        private MechatrolinkCommand(byte[][] f, bool cs)
+        private EncoderCommand(byte[][] f, bool cs)
         {
             ParsedFields = f.Select(x => x.ToArray()).ToArray();
             ContainsSubcommand = cs;
@@ -209,7 +194,7 @@ namespace MechatrolinkParser
         /// </summary>
         /// <param name="data">Expects stripped command body (without address and FCS)</param>
         /// <returns></returns>
-        public static MechatrolinkCommand Parse(byte[] data)
+        public static EncoderCommand Parse(byte[] data)
         {
             bool containsSub = data.Length > MainCommandLength;
             int length = containsSub ? FieldLength.Count : MainCommandFieldsCount;
@@ -226,7 +211,7 @@ namespace MechatrolinkParser
                 }
                 current += l;
             }
-            return new MechatrolinkCommand(result, containsSub);
+            return new EncoderCommand(result, containsSub);
         }
     }
 }

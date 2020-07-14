@@ -61,7 +61,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BulkProcessing.cs" />
-    <Compile Include="CommandDatabase.cs" />
+    <Compile Include="DatabaseEngine.cs" />
+    <Compile Include="EncoderCommandDatabase.cs" />
+    <Compile Include="MechatrolinkCommandDatabase.cs" />
+    <Compile Include="DataReporter.cs" />
+    <Compile Include="EncoderStructures.cs" />
+    <Compile Include="ErrorListener.cs" />
     <Compile Include="HDLCManchesterDecoder.cs" />
     <Compile Include="LogicAnalyzerData.cs" />
     <Compile Include="MechatrolinkStructures.cs" />
