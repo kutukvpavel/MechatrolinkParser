@@ -117,5 +117,16 @@ namespace MechatrolinkParser
             }
             return new LogicAnalyzerData(res);
         }
+
+        public LogicAnalyzerData SkipUntil(int offset)
+        {
+            var res = new SortedList<int, bool>(Count);
+            foreach (var item in this)
+            {
+                if (item.Key < offset) continue;
+                res.Add(item.Key, item.Value);
+            }
+            return new LogicAnalyzerData(res);
+        }
     }
 }

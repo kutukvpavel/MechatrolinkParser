@@ -23,12 +23,23 @@ namespace MechatrolinkParser
         /// </summary>
         public static bool IgnoreLastPreamble { get; set; } = true;
 
-        public static int PreambleLength { get; set; } = 16;
+        public static int RequestPreambleLength { get; set; } = 16;
+
+        public static int ResponsePreambleLength { get; set; } = 16;
+
+        /// <summary>
+        /// x10 nS
+        /// </summary>
+        public static int MaxRequestResponseDelay { get; set; } = 1000;
+        /// <summary>
+        /// x10 nS
+        /// </summary>
+        public static int MinRequestResponseDelay { get; set; } = 50;
 
         /// <summary>
         /// Remove zero bits stuffed in for transparency of the protocol
         /// </summary>
-        /// <param name="data">Bool stand for already decoded bits, not just transitions</param>
+        /// <param name="data">Bool stands for already decoded bits, not just transitions</param>
         /// <returns>Array of bits</returns>
         public static SortedList<int, bool> DestuffZeroes(SortedList<int, bool> data)
         {
@@ -97,56 +108,57 @@ namespace MechatrolinkParser
         /// <returns>Array of bits</returns>
         public static SortedList<int, bool> Decode(SortedList<int, bool> data, int freq, double error)
         {
+            bool req = false; //For interpacket search and then preamble length matching, first look for request preamble (i.e. set req true after interpacket search!)
             data = new SortedList<int, bool>(data);
             int p = (int)Math.Round(1E8 / freq);
             int ph = (int)Math.Round(p * (1 + error));
             int pl = (int)Math.Round(p * (1 - error));
             SortedList<int, int> pulses = new SortedList<int, int>(data.Count - 1);
-            for (int i = 0; i < data.Count - 1; i++)
+            for (int i = 0; i < data.Count - 1; i++) //Transform edges into pulses
             {
+                //Skip until first long pulse (interpacket)
+                if (!req && ((data.Keys[i + 1] - data.Keys[i]) < MaxRequestResponseDelay)) continue;
                 pulses.Add(data.Keys[i], data.Keys[i + 1] - data.Keys[i]);
+                req = true;
             }
-            //Look for the preamble: 16 transitions (15 pulses) approximately a period apart, starts with low-to-high, ends with high-to-low
+            //Look for the preambles: starts with low-to-high, ends with high-to-low (?)
             SortedList<int, int> preambles = new SortedList<int, int>(pulses.Count / 32); //Assuming the contents are at least as long as the preamble (16*2)
-            int current = 0;
-            for (int i = 0; i < pulses.Count; i++)
+            int current = 0; //Suitable edges found during preamble search
+            try
             {
-                if (current == 0)
+                int state = 0;
+                for (int i = 0; i < pulses.Count; i++)
                 {
-                    if (!data[pulses.Keys[i]]) continue;
-                }
-                if (pulses.Values[i] > pl && pulses.Values[i] < ph)
-                {
-                    current++;
-                }
-                else
-                {
-                    current = 0;
-                }
-                try
-                {
-                    if (current == (PreambleLength - 1))
-                    //Next (last) transition is determined by the number of preamble bits (assuming the preamble starts with 0)
-                    //Because preamble is there for a DPLL to lock on the embedded clock, and therefore has to be a
-                    //010101010... pattern (2MHz, but phase-aligned!)
+                    switch (state)
                     {
-                        if (PreambleLength % 2 == 0 ? 
-                            (!data[pulses.Keys[i + 1]] && pulses.Values[i + 1] < pl) : //Meaningless transition between two zeros
-                            (data[pulses.Keys[i + 1]] && pulses.Values[i + 1] > pl && pulses.Values[i + 1] < ph))
-                        {
-                            preambles.Add(pulses.Keys[i - 15], pulses.Keys[i + 1]);
-                        }
-                        current = 0;
+                        case 0: //Look for request preamble
+                            if (PreambleHelper(data, pulses, preambles, pl, ph, RequestPreambleLength, ref current, i)) state++;
+                            break;
+                        case 1: //Look for request-response delay
+                            if (pulses.Values[i] > MinRequestResponseDelay)
+                            {
+                                if (pulses.Values[i] < MaxRequestResponseDelay) state++;
+                                else state = 0;
+                            }
+                            break;
+                        case 2: //Look for response preamble
+                            if (PreambleHelper(data, pulses, preambles, pl, ph, ResponsePreambleLength, ref current, i)) state++;
+                            break;
+                        case 3: //Look for response-request delay
+                            if (pulses.Values[i] > MaxRequestResponseDelay) state = 0;
+                            break;
+                        default:
+                            ErrorListener.Add(new Exception("Illegal state value for preamble detection state machine."));
+                            break;
                     }
                 }
-                catch (ArgumentOutOfRangeException)
-                {
-                    ErrorListener.Add(new ArgumentException(
-                        "Warning: the bitstream contains an incomplete packet. It will be discarded."));
-                    break;
-                }
             }
-            //Program.DataReporter.ReportProgress("Preambles parsed...");
+            catch (ArgumentOutOfRangeException)
+            {
+                ErrorListener.Add(new ArgumentException(
+                    "Warning: the bitstream contains an incomplete packet. The latter will be discarded."));
+            }
+            //DataReporter.ReportProgress("Preambles parsed...");
             SortedList<int, bool> bits = new SortedList<int, bool>(data.Capacity);
             int lastPreamble = preambles.Count - 1;
             //Btw, int current is now repurposed
@@ -191,6 +203,35 @@ namespace MechatrolinkParser
                 }
             }
             return lastIndex;
+        }
+        private static bool PreambleHelper(SortedList<int, bool> data, SortedList<int, int> pulses, SortedList<int, int> preambles,
+            int pl, int ph, int len, ref int current, int i)
+        {
+            if ((current == 0) && !data[pulses.Keys[i]]) return false; //Look for a low pulse as a start of preamble
+            if (pulses.Values[i] > pl && pulses.Values[i] < ph) //Then check if current pulse suits 10101... pattern (1/2 clock)
+            {
+                current++;
+            }
+            else
+            {
+                current = 0;
+                return false;
+            }
+            if (current == (len - 1))
+            //Next (last) transition is determined by the number of preamble bits (assuming the preamble starts with 0)
+            //Because preamble is there for a DPLL to lock on the embedded clock, there has to be a
+            //010101010... pattern (1/2 of the clock, but phase-aligned!)
+            {
+                if (len % 2 == 0 ?
+                    (!data[pulses.Keys[i + 1]] && pulses.Values[i + 1] < pl) : //Meaningless transition between two zeros if the length is even
+                    (data[pulses.Keys[i + 1]] && pulses.Values[i + 1] > pl && pulses.Values[i + 1] < ph)) //No meaningless transition otherwise
+                {
+                    preambles.Add(pulses.Keys[i - len + 1], pulses.Keys[i + 1]);
+                    return true;
+                }
+                current = 0;
+            }
+            return false;
         }
 
         /// <summary>

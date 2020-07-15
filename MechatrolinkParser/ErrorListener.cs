@@ -56,7 +56,7 @@ namespace MechatrolinkParser
                 unchecked
                 {
                     res = res * 31 + obj.Message.GetHashCode();
-                    res = res * 31 + obj.InnerException.Message.GetHashCode();
+                    if (obj.InnerException != null) res = res * 31 + obj.InnerException.Message.GetHashCode();
                 }
                 return res;
             }

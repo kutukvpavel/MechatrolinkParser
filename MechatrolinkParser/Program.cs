@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
@@ -14,7 +13,7 @@ namespace MechatrolinkParser
             if (args.Length < 1)
             {
                 Console.WriteLine(@"Not enough arguments. Usage:
-MechatrolinkParser.exe <Exported text file path> <Line limit> <Frequency, Hz> <Options>
+MechatrolinkParser.exe <Exported text file path> <Line/time limit> <Frequency, Hz> <Options>
 Limit and frequency are optional, defaults: 20000 and 4000000. Use limit = 0 to disable the limit.
 Options: [-e] = packet body endianess swap (default is 'big-endian'), usually not needed
 [-s] = silent (switch off progress reports/warnings)
@@ -25,9 +24,14 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 [-p] = parallel computation in bulk mode
 [-k] = keep console windows open (Console.ReadKey())
 [-i] = invert raw data (to correct receiver polarity)
-[-p:XX] = set preamble length to XX (defaults to 16)
-[-n] = encoder mode (sets preamble to 15 bits and enables inversion - for CC-Link/Mechatrolink encoder communications)
-[-c:X] = set Kingst LA channel index (of CSV column index) to X (defaults to 1)
+[-pq:X] = set request preamble length to X (defaults to 16)
+[-ps:X] = set response preamble length to X (defaults to 16)
+[-n] = encoder mode (sets suitable preamble lengths, enables inversion, changes database and reporter - for CC-Link/Mechatrolink encoder communications)
+[-c:X] = set Kingst LA channel index (i.e. CSV column index) to X (defaults to 1)
+[-o:X] = start parsing from time offset X (w.r. to 0), units are x10nS
+[-imax:X] = max request-response delay (defaults to 1000x10nS)
+[-imin:X] = min request-response delay (defaults to 50x10nS)
+[-t] = use time limit instead of line limit
 ");
                 Console.ReadLine();
                 return 1;
@@ -37,6 +41,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             int limit = 20000;
             int freq = 4000000;
             int column = 1;
+            int startOffset = int.MinValue;
             bool swap = false; 
             bool transcode = false;
             bool invert = false;
@@ -58,6 +63,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 DataReporter.EnableProgressOutput = !args.Contains("-s");
                 BulkProcessing.UseParallelComputation = args.Contains("-p");
                 ErrorListener.PrintOnlyDistinctExceptions = !args.Contains("-x");
+                LogicAnalyzerData.UseTimeLimit = args.Contains("-t");
                 if (args.Contains("-b"))
                     return BulkMain(args, limit, freq);
                 swap = args.Contains("-e");
@@ -66,11 +72,16 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 {
                     invert = true;
                     encoder = true;
-                    HDLCManchesterDecoder.PreambleLength = 15;
+                    HDLCManchesterDecoder.RequestPreambleLength = 15;
+                    HDLCManchesterDecoder.ResponsePreambleLength = 4;
                 }
                 //Switches with arguments override mode switches
-                ArgumentHelper("-p:", args, (int i) => { HDLCManchesterDecoder.PreambleLength = i; });
+                ArgumentHelper("-pq:", args, (int i) => { HDLCManchesterDecoder.RequestPreambleLength = i; });
+                ArgumentHelper("-ps:", args, (int i) => { HDLCManchesterDecoder.ResponsePreambleLength = i; });
                 ArgumentHelper("-c:", args, (int i) => { column = i; });
+                ArgumentHelper("-imin:", args, (int i) => { HDLCManchesterDecoder.MinRequestResponseDelay = i; });
+                ArgumentHelper("-imax:", args, (int i) => { HDLCManchesterDecoder.MaxRequestResponseDelay = i; });
+                ArgumentHelper("-o:", args, (int i) => { startOffset = i; });
             }
             catch (Exception e)
             {
@@ -78,8 +89,8 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 Console.WriteLine(e.ToString());
                 return ReturnHelper(1, args);
             }
-            DataReporter.ReportProgress(string.Format("Time limit: {0}, frequency: {1}, endianess swap: {2}.", 
-                limit, freq, swap));
+            DataReporter.ReportProgress(string.Format("{3} limit: {0}, frequency: {1}, endianess swap: {2}.", 
+                limit, freq, swap, LogicAnalyzerData.UseTimeLimit ? "Time" : "Line"));
 
             DataReporter.ReportProgress("Loading data...");
             LogicAnalyzerData data;
@@ -93,7 +104,13 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 {
                     data = LogicAnalyzerData.CreateFromKingst(args[0], column, limit);
                 }
+                if (data.Count == 0)
+                {
+                    Console.WriteLine("Given current time constraints, the dataset empty!");
+                    return ReturnHelper(4, args);
+                }
                 if (invert) data = data.Invert();
+                data = data.SkipUntil(startOffset);
                 GC.Collect();
                 DataReporter.ReportProgress("Parsing data...");
                 if (encoder)
