@@ -5,9 +5,20 @@ using System.Text;
 
 namespace MechatrolinkParser
 {
-    class Program
+    public static class Program
     {
-        static int Main(string[] args)
+        public enum ExitCodes
+        {
+            OK = 0,
+            CommandLineError,
+            ParserError,
+            TranscoderError,
+            EmptyDataset,
+            BulkProcessingFailed,
+            OutOfMemory
+        }
+
+        public static int Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
             if (args.Length < 1)
@@ -32,9 +43,19 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 [-imax:X] = max request-response delay (defaults to 1000x10nS)
 [-imin:X] = min request-response delay (defaults to 50x10nS)
 [-t] = use time limit instead of line limit
+
+Returns:
+    OK = 0,
+    CommandLineError = 1,
+    ParserError = 2,
+    TranscoderError = 3,
+    EmptyDataset = 4,
+    BulkProcessingFailed = 5,
+    OutOfMemory = 6
+
 ");
                 Console.ReadLine();
-                return 1;
+                return (int)ExitCodes.CommandLineError;
             }
 
             //DataReporter.ReportProgress("Parsing command line...");
@@ -87,7 +108,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             {
                 Console.WriteLine("Unable to parse command line:");
                 Console.WriteLine(e.ToString());
-                return ReturnHelper(1, args);
+                return ReturnHelper(ExitCodes.CommandLineError, args);
             }
             DataReporter.ReportProgress(string.Format("{3} limit: {0}, frequency: {1}, endianess swap: {2}.", 
                 limit, freq, swap, LogicAnalyzerData.UseTimeLimit ? "Time" : "Line"));
@@ -107,7 +128,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 if (data.Count == 0)
                 {
                     Console.WriteLine("Given current time constraints, the dataset empty!");
-                    return ReturnHelper(4, args);
+                    return ReturnHelper(ExitCodes.EmptyDataset, args);
                 }
                 if (invert) data = data.Invert();
                 data = data.SkipUntil(startOffset);
@@ -126,11 +147,15 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                     Console.WriteLine(DataReporter.CreateMechatrolinkReportString(parsed));
                 }
             }
+            catch (OutOfMemoryException)
+            {
+                return ReturnHelper(ExitCodes.OutOfMemory, args);
+            }
             catch (Exception e)
             {
                 Console.WriteLine("Unable to parse the data:");
                 Console.WriteLine(e.ToString()); 
-                return ReturnHelper(2, args);
+                return ReturnHelper(ExitCodes.ParserError, args);
             }
 
             if (transcode)
@@ -144,7 +169,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 {
                     Console.WriteLine("Unable to transcode the file:");
                     Console.WriteLine(e.ToString());  
-                    return ReturnHelper(3, args);
+                    return ReturnHelper(ExitCodes.TranscoderError, args);
                 }
             }
             return ReturnHelper(0, args);
@@ -169,10 +194,10 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             }
         }
 
-        public static int ReturnHelper(int code, string[] args)
+        public static int ReturnHelper(ExitCodes code, string[] args)
         {
             if (args.Contains("-k")) Console.ReadKey();
-            return code;
+            return (int)code;
         }
 
         public static void MakeBackupCopy(string filePath)
@@ -192,13 +217,13 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
                 string[] split = args[0].Split('|');
                 return ReturnHelper(BulkProcessing.ProcessDirectory(split[0], lim, freq, split[1],
                     string.Join(" ", args.Skip(3).Where(x => x != "-b")))
-                    ? 0 : 2, args);
+                    ? ExitCodes.OK : ExitCodes.BulkProcessingFailed, args);
             }
             catch (Exception e)
             {
-                Console.WriteLine("Bulk processing error: " + e.ToString());
+                Console.WriteLine("Bulk processor setup error: " + e.ToString());
             }
-            return ReturnHelper(1, args);
+            return ReturnHelper(ExitCodes.CommandLineError, args);
         }
     }
 }
