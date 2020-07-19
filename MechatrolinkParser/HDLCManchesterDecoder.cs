@@ -9,6 +9,8 @@ namespace MechatrolinkParser
     /// </summary>
     public static class HDLCManchesterDecoder
     {
+        private static ICRC CrcFactory = CRCFactory.Instance.Create(CRCConfig.X25);
+
         /// <summary>
         /// Mechatrolink-II uses the same flag (packet start and end marker) value the HDLC does.
         /// </summary>
@@ -279,12 +281,11 @@ namespace MechatrolinkParser
         /// <summary>
         /// Uses CRC-16/X-25 algorithm, also FCS field is little-endian
         /// </summary>
-        /// <param name="data"></param>
-        /// <returns></returns>
+        /// <param name="data">Packet contents without flags and the FCS field itself</param>
+        /// <returns>Two bytes (little-endian CRC-16)</returns>
         public static byte[] ComputeFCS(byte[] data)
         {
-            var crc = CRCFactory.Instance.Create(CRCConfig.X25);
-            return crc.ComputeHash(data).Hash;
+            return CrcFactory.ComputeHash(data).Hash;
         }
     }
 }
