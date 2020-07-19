@@ -194,7 +194,7 @@ Returns:
             }
         }
 
-        private static int ReturnHelper(int code, string[] args)
+        private static int ReturnHelper(ExitCodes code, string[] args)
         {
             if (args.Contains("-k")) Console.ReadKey();
             return (int)code;
