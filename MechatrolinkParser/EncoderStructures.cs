@@ -73,7 +73,7 @@ namespace MechatrolinkParser
         /// </summary>
         public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
         {
-            { Fields.Unknown, 17 },
+            { Fields.Unknown, -1 }, //Variable length (only one such field per packet is allowed)
             { Fields.FCS, 2 }
         };
         /// <summary>
@@ -83,7 +83,7 @@ namespace MechatrolinkParser
         /// <summary>
         /// With a subcommand (bytes)
         /// </summary>
-        public const int FullPacketLength = 35;
+        //public const int FullPacketLength = 32;
         /// <summary>
         /// Exclude subcommand fields for ordinary packets
         /// </summary>
@@ -118,7 +118,7 @@ namespace MechatrolinkParser
         /// <returns></returns>
         public static EncoderPacket Parse(byte[] data, int time, bool littleEndian = false)
         {
-            bool containsSub = data.Length > OrdinaryPacketLength;
+            //bool containsSub = data.Length > OrdinaryPacketLength;
             byte[][] result = new byte[FieldLength.Count][];
             List<byte> fcs = new List<byte>(data.Length - FieldLength[Fields.FCS]);
             int current = 0;
@@ -126,6 +126,7 @@ namespace MechatrolinkParser
             {
                 if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;
                 int l = FieldLength[(Fields)i];
+                if (l == -1) l = data.Length - FieldLength.Sum(x => x.Value) - 1; //-1 stands for "variable length"
                 result[i] = new byte[l];
                 //Multibyte fields may be little-endian at physical layer (in fact they should be, but it turns out they're not...)
                 //All in all, we'd better implement a switch
@@ -162,7 +163,7 @@ namespace MechatrolinkParser
         /// </summary>
         public static readonly Dictionary<Fields, int> FieldLength = new Dictionary<Fields, int>
         {
-            { Fields.Unknown, 17 }
+            { Fields.Unknown, -1 } //Variable length (only one such field per command is allowed)
         };
         /// <summary>
         /// Bytes, without a subcommand
@@ -203,6 +204,7 @@ namespace MechatrolinkParser
             for (int i = 0; i < length; i++)
             {
                 int l = FieldLength[(Fields)i];
+                if (l == -1) l = data.Length - FieldLength.Sum(x => x.Value) - 1; //Variable length fields
                 result[i] = new byte[l];
                 //Multibyte fields have already been converted to big-endian, if needed (in packet.parse())
                 for (int j = 0; j < l; j++)

@@ -13,8 +13,8 @@ namespace MechatrolinkParser
             if (args.Length < 1)
             {
                 Console.WriteLine(@"Not enough arguments. Usage:
-MechatrolinkParser.exe <Exported text file path> <Line/time limit> <Frequency, Hz> <Options>
-Limit and frequency are optional, defaults: 20000 and 4000000. Use limit = 0 to disable the limit.
+MechatrolinkParser.exe <Exported text file path> <Line/time limit> <Frequency, Hz> [<Options>]
+Limit and frequency are optional only if <Options> is omitted, defaults: 20000 and 4000000. Use limit = 0 to disable the limit.
 Options: [-e] = packet body endianess swap (default is 'big-endian'), usually not needed
 [-s] = silent (switch off progress reports/warnings)
 [-x] = full exception info (defaults to distinct exception output)
@@ -26,7 +26,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 [-i] = invert raw data (to correct receiver polarity)
 [-pq:X] = set request preamble length to X (defaults to 16)
 [-ps:X] = set response preamble length to X (defaults to 16)
-[-n] = encoder mode (sets suitable preamble lengths, enables inversion, changes database and reporter - for CC-Link/Mechatrolink encoder communications)
+[-n] = encoder mode (sets suitable preamble lengths, enables inversion, changes database and reporter engine - for CC-Link/Mechatrolink encoder communications)
 [-c:X] = set Kingst LA channel index (i.e. CSV column index) to X (defaults to 1)
 [-o:X] = start parsing from time offset X (w.r. to 0), units are x10nS
 [-imax:X] = max request-response delay (defaults to 1000x10nS)
@@ -150,7 +150,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             return ReturnHelper(0, args);
         }
 
-        public static void DoneReportErrors()
+        private static void DoneReportErrors()
         {
             if (DataReporter.EnableProgressOutput && ErrorListener.Exceptions.Any())
             {
@@ -160,7 +160,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             DataReporter.ReportProgress("Done." + Environment.NewLine);
         }
 
-        public static void ArgumentHelper(string prefix, string[] args, Action<int> act)
+        private static void ArgumentHelper(string prefix, string[] args, Action<int> act)
         {
             var tmp = args.Where(x => x.StartsWith(prefix));
             if (tmp.Any())
@@ -169,13 +169,13 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             }
         }
 
-        public static int ReturnHelper(int code, string[] args)
+        private static int ReturnHelper(int code, string[] args)
         {
             if (args.Contains("-k")) Console.ReadKey();
             return code;
         }
 
-        public static void MakeBackupCopy(string filePath)
+        private static void MakeBackupCopy(string filePath)
         {
             string target = Path.GetFileName(filePath);
             target = filePath.Replace(target, 
@@ -183,7 +183,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
             File.Copy(filePath, target);
         }
 
-        public static int BulkMain(string[] args, int lim, int freq)
+        private static int BulkMain(string[] args, int lim, int freq)
         {
             if (args.Contains("-f"))
                 BulkProcessing.NameModificationFormat = "{0}_parsed_filtered{1}";

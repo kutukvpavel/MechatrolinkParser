@@ -9,6 +9,8 @@ namespace MechatrolinkParser
         public static bool EnableProgressOutput { get; set; } = true;
         public static bool FilterOutput { get; set; } = false;
 
+        public static readonly string BroadcastPacketReport = "================ Info: Broadcast message ================" + Environment.NewLine;
+
         private static readonly string EncoderPacketFormat = "Timestamp: {0}" + Environment.NewLine +
             "FCS {1}: {2} (computed: {3})" + Environment.NewLine;
         private static readonly string MechatrolinkPacketHeaderFormat = "Timestamp: {0}" + Environment.NewLine +
@@ -27,6 +29,11 @@ namespace MechatrolinkParser
             {
                 //if (FilterOutput) if (DetectNonsense(item)) continue;
                 res.AppendLine("///////////////////////////////////// Packet ///////////////////////////////////");
+                if (item.Command.ParsedFields.All(x => x.Length == 0))
+                {
+                    res.AppendLine(BroadcastPacketReport);
+                    continue;
+                }
                 res.AppendLine("Raw: " + string.Join(" ",
                     item.ParsedData.Select(x => ArrayToString(x ?? new byte[0]))));
                 res.AppendFormat(EncoderPacketFormat, item.Timestamp,
