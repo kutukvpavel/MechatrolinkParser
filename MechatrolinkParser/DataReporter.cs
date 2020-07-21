@@ -27,6 +27,7 @@ namespace MechatrolinkParser
                 data.Packets.Length, data.Period));
             foreach (var item in data.Packets)
             {
+                if (item == null) continue;
                 //if (FilterOutput) if (DetectNonsense(item)) continue;
                 res.AppendLine("///////////////////////////////////// Packet ///////////////////////////////////");
                 if (item.Command.ParsedFields.All(x => x.Length == 0))

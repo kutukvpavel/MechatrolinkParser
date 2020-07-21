@@ -40,11 +40,12 @@ namespace MechatrolinkParser
             tempDecoded.TrimExcess();
             GC.Collect();
             DataReporter.ReportProgress("HDLC layer decoded...");
-            EncoderPacket[] decoded = new EncoderPacket[packets.Length];
+            var decoded = new EncoderPacket[packets.Length];
             for (int i = 0; i < packets.Length; i++)
             {
                 byte[] temp = HDLCManchesterDecoder.PackIntoBytes(
                     HDLCManchesterDecoder.DestuffZeroes(packets[i])).Values.ToArray();
+                if (temp.Length == 0) continue; 
                 //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} packed...", i + 1, packets.Length));
                 decoded[i] = EncoderPacket.Parse(temp, packets[i].Keys.First(), littleEndian);
                 //DataReporter.ReportProgress(string.Format("Packet {0} out of {1} decoded...", i + 1, packets.Length));

@@ -91,7 +91,7 @@ Returns:
                 transcode = args.Contains("-stm");
                 if (args.Contains("-n")) //Mode switches override on/off switches
                 {
-                    invert = true;
+                    //invert = true;
                     encoder = true;
                     HDLCManchesterDecoder.RequestPreambleLength = 15;
                     HDLCManchesterDecoder.ResponsePreambleLength = 4;
