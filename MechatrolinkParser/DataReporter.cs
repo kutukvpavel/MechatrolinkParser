@@ -8,6 +8,7 @@ namespace MechatrolinkParser
     {
         public static bool EnableProgressOutput { get; set; } = true;
         public static bool FilterOutput { get; set; } = false;
+        public static bool DisableTimestamp { get; set; } = false;
 
         public static readonly string BroadcastPacketReport = "================ Info: Broadcast message ================" + Environment.NewLine;
 
@@ -30,14 +31,17 @@ namespace MechatrolinkParser
                 if (item == null) continue;
                 //if (FilterOutput) if (DetectNonsense(item)) continue;
                 res.AppendLine("///////////////////////////////////// Packet ///////////////////////////////////");
-                if (item.Command.ParsedFields.All(x => x.Length == 0))
+                if (item.Command != null)
                 {
-                    res.AppendLine(BroadcastPacketReport);
-                    continue;
+                    if (item.Command.ParsedFields.All(x => x.Length == 0))
+                    {
+                        res.AppendLine(BroadcastPacketReport);
+                        continue;
+                    }
                 }
                 res.AppendLine("Raw: " + string.Join(" ",
                     item.ParsedData.Select(x => ArrayToString(x ?? new byte[0]))));
-                res.AppendFormat(EncoderPacketFormat, item.Timestamp,
+                res.AppendFormat(EncoderPacketFormat, DisableTimestamp ? -1 : item.Timestamp,
                     item.FCSError ? "ERROR" : "OK",
                     ArrayToString(item.ParsedData[(int)EncoderPacket.Fields.FCS]),
                     ArrayToString(item.ComputedFCS));
@@ -61,7 +65,7 @@ namespace MechatrolinkParser
                 res.AppendLine("Raw: " + string.Join(" ",
                     item.ParsedData.Select(x => ArrayToString(x ?? new byte[0]))));
                 res.AppendLine("================ HEADER ==================");
-                res.AppendFormat(MechatrolinkPacketHeaderFormat, item.Timestamp,
+                res.AppendFormat(MechatrolinkPacketHeaderFormat, DisableTimestamp ? -1 : item.Timestamp,
                     ArrayToString(item.ParsedData[(int)MechatrolinkPacket.Fields.Address]),
                     ArrayToString(item.ParsedData[(int)MechatrolinkPacket.Fields.Control]),
                     item.FCSError ? "ERROR" : "OK",
@@ -89,7 +93,7 @@ namespace MechatrolinkParser
 
         private static string ArrayToString(byte[] arr)
         {
-            return string.Join(" ", arr.Select(x => x.ToString("X2")));
+            return string.Join(" ", (arr ?? new byte[] { }).Select(x => x.ToString("X2")));
         }
         private static bool DetectNonsense(MechatrolinkPacket packet)
         {

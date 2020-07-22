@@ -121,28 +121,43 @@ namespace MechatrolinkParser
         {
             //bool containsSub = data.Length > OrdinaryPacketLength;
             byte[][] result = new byte[FieldLength.Count][];
-            List<byte> fcs = new List<byte>(data.Length - FieldLength[Fields.FCS]);
+            int dataLen = data.Length - FieldLength[Fields.FCS];
+            List<byte> fcs = new List<byte>(dataLen > -1 ? dataLen : 0);
             int current = 0;
-            for (int i = 0; i < FieldLength.Count; i++)
+            try
             {
-                if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;
-                int l = FieldLength[(Fields)i];
-                if (l == -1) l = data.Length - FieldLength.Sum(x => x.Value) - 1; //-1 stands for "variable length"
-                result[i] = new byte[l];
-                //Multibyte fields may be little-endian at physical layer (in fact they should be, but it turns out they're not...)
-                //All in all, we'd better implement a switch
-                for (int j = 0; j < l; j++)
+                for (int i = 0; i < FieldLength.Count; i++)
                 {
-                    result[i][j] = data[current + (littleEndian ? (l - j - 1) : (j))];
-                    if ((Fields)i != Fields.FCS) fcs.Add(result[i][j]);
+                    if (OrdinaryPacketFieldsToExclude.Any(x => x == (Fields)i)) continue;
+                    int l = FieldLength[(Fields)i];
+                    if (l == -1) l = data.Length - FieldLength.Sum(x => x.Value) - 1; //-1 stands for "variable length"
+                    result[i] = new byte[l];
+                    //Multibyte fields may be little-endian at physical layer (in fact they should be, but it turns out they're not...)
+                    //All in all, we'd better implement a switch
+                    for (int j = 0; j < l; j++)
+                    {
+                        result[i][j] = data[current + (littleEndian ? (l - j - 1) : (j))];
+                        if ((Fields)i != Fields.FCS) fcs.Add(result[i][j]);
+                    }
+                    current += l;
                 }
-                current += l;
+            }
+            catch (OverflowException)
+            {
+                ErrorListener.Add(new Exception(string.Format("Packet at {0} is incomplete!", time)));
             }
             var toParse = result[(int)Fields.Unknown];
             //if (containsSub) toParse = toParse.Concat(result[(int)Fields.SubcommandData]).ToArray();
             var packet = new EncoderPacket(result, EncoderCommand.Parse(toParse), time);
             packet.ComputedFCS = HDLCManchesterDecoder.ComputeFCS(fcs.ToArray());
-            packet.FCSError = !packet.ComputedFCS.SequenceEqual(packet.ParsedData[(int)Fields.FCS]);
+            try
+            {
+                packet.FCSError = !packet.ComputedFCS.SequenceEqual(packet.ParsedData[(int)Fields.FCS]);
+            }
+            catch (ArgumentNullException)
+            {
+                packet.FCSError = true;
+            }
             packet.DatabaseReport = EncoderCommandDatabase.GetReport(packet);
             return packet;
         }
@@ -198,6 +213,7 @@ namespace MechatrolinkParser
         /// <returns></returns>
         public static EncoderCommand Parse(byte[] data)
         {
+            if (data == null) return null;
             bool containsSub = data.Length > MainCommandLength;
             int length = containsSub ? FieldLength.Count : MainCommandFieldsCount;
             int current = 0; //Current position index
