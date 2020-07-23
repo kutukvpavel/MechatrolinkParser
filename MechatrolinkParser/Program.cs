@@ -43,6 +43,7 @@ Options: [-e] = packet body endianess swap (default is 'big-endian'), usually no
 [-imax:X] = max request-response delay (defaults to 1000x10nS)
 [-imin:X] = min request-response delay (defaults to 50x10nS)
 [-t] = use time limit instead of line limit
+[-dt] = disable timestamp output (useful for output file comparison during analysis)
 
 Returns:
     OK = 0,
@@ -82,6 +83,7 @@ Returns:
                 invert = args.Contains("-i");
                 DataReporter.FilterOutput = args.Contains("-f");
                 DataReporter.EnableProgressOutput = !args.Contains("-s");
+                DataReporter.DisableTimestamp = args.Contains("-dt");
                 BulkProcessing.UseParallelComputation = args.Contains("-p");
                 ErrorListener.PrintOnlyDistinctExceptions = !args.Contains("-x");
                 LogicAnalyzerData.UseTimeLimit = args.Contains("-t");

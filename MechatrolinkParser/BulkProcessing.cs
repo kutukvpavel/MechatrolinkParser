@@ -38,7 +38,7 @@ namespace MechatrolinkParser
             //Get list of all suitable files
             string[] files = Directory.GetFiles(directory, search, SearchOption.AllDirectories);
             files = files.Where(x => x != NameModifier(x)).ToArray(); //Skip reports, in case their extensions coincide with data files
-            string args = string.Format("/c \"{0} \"{{0}}\" {1} {2} {3} > {{1}}\"",
+            string args = string.Format("/c \"{0} \"{{0}}\" {1} {2} {3} > \"{{1}}\"\"",
                 string.Format("\"{0}\"", System.Reflection.Assembly.GetExecutingAssembly().Location),
                 limit, freq, flags);
             int maxInstances = UseParallelComputation ? Environment.ProcessorCount : 1;
@@ -72,7 +72,7 @@ namespace MechatrolinkParser
                         }
                     }
                 }
-                DataReporter.ReportProgress("Finished processing of all the files.");
+                DataReporter.ReportProgress("Finished processing of the file (or group of files).");
             }
             running.Clear();
             if (retry.Any()) DataReporter.ReportProgress("Retrying to parse files that caused OutOfMemory exceptions...");
@@ -82,6 +82,7 @@ namespace MechatrolinkParser
                 WaitForThreadPool(running);
                 if (running.First().ExitCode != 0) success = false;
             }
+            DataReporter.ReportProgress("Finished processing of all the files.");
             return success;
         }
         private static void WaitForThreadPool(List<Process> running)
@@ -111,6 +112,7 @@ Error details: {1}", psi.Arguments, e.ToString()));
             ProcessStartInfo psi = new ProcessStartInfo("cmd.exe");
             psi.Arguments = string.Format(args, file, Path.GetFileName(NameModifier(file)));
             psi.WorkingDirectory = Path.GetDirectoryName(file);
+            psi.WindowStyle = ProcessWindowStyle.Hidden;
             return CallInstance(running, psi);
         }
         private static string NameModifier(string original)
