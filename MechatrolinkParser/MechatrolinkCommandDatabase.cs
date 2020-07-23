@@ -69,8 +69,8 @@ namespace MechatrolinkParser
                 { CommonFieldTypes.IdOffset, new Field("OFFSET", 6) },
                 { CommonFieldTypes.Size, new Field("SIZE", 7) },
                 { CommonFieldTypes.IdDeviceCode, new Field("DEVICE_CODE", 5) },
-                { CommonFieldTypes.ParameterNumber, new Field("NO", 5, 6) },
-                { CommonFieldTypes.ParameterContents, new Field("PARAMETER", 8, 9, 10, 11, 12, 13, 14, 15) },
+                { CommonFieldTypes.ParameterNumber, new Field("NO", true, 5, 6) },
+                { CommonFieldTypes.ParameterContents, new Field("PARAMETER", true, 8, 9, 10, 11, 12, 13, 14, 15) { CustomParser = MechatrolinkCustomParsers.ParameterValueParser } },
                 { CommonFieldTypes.CommVersion, new Field("VER", 5) { CustomParser = MechatrolinkCustomParsers.CommVersionParser } },
                 { CommonFieldTypes.CommMode, new BitField("COM_MODE", 6)
                     {
@@ -88,7 +88,7 @@ namespace MechatrolinkParser
                         CustomParser = MechatrolinkCustomParsers.PositionSubParser
                     }
                 },
-                { CommonFieldTypes.PositionData, new Field("POS_DATA", 6, 7, 8, 9) }
+                { CommonFieldTypes.PositionData, new Field("POS_DATA", true, 6, 7, 8, 9) }
             };
             Database = new List<CommandInfo>()
             {
@@ -569,6 +569,17 @@ namespace MechatrolinkParser
                     break;
             }
             return res;
+        }
+
+        public static string ParameterValueParser(byte[] bytes)
+        {
+            bytes = bytes.Reverse().ToArray();
+            int res = 0;
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                res |= bytes[i] << (i * 8);
+            }
+            return string.Format("DEC = {0}", res);
         }
     }
 

@@ -80,15 +80,15 @@ Returns:
                         freq = int.Parse(args[2]);
                     }
                 }
-                invert = args.Contains("-i");
-                DataReporter.FilterOutput = args.Contains("-f");
+                DataReporter.FilterOutput = args.Contains("-f");      //DataReporter, BulkProcessing and ErrorListener setup goes first
                 DataReporter.EnableProgressOutput = !args.Contains("-s");
                 DataReporter.DisableTimestamp = args.Contains("-dt");
                 BulkProcessing.UseParallelComputation = args.Contains("-p");
                 ErrorListener.PrintOnlyDistinctExceptions = !args.Contains("-x");
+                if (args.Contains("-b"))                               //Possible bulk processing goes second
+                    return BulkMain(args, limit, freq);                
                 LogicAnalyzerData.UseTimeLimit = args.Contains("-t");
-                if (args.Contains("-b"))
-                    return BulkMain(args, limit, freq);
+                invert = args.Contains("-i");                          //And local vars are the last
                 swap = args.Contains("-e");
                 transcode = args.Contains("-stm");
                 if (args.Contains("-n")) //Mode switches override on/off switches
