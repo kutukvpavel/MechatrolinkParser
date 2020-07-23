@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 
 namespace MechatrolinkParser
 {
@@ -16,7 +17,18 @@ namespace MechatrolinkParser
             Monitor1,
             Monitor2,
             FeedForwardSpeed,
-            Option
+            Option,
+            IdOffset,
+            Size,
+            IdDeviceCode,
+            ParameterNumber,
+            ParameterContents,
+            CommVersion,
+            CommMode,
+            CommTime,
+            AlarmMode,
+            PositionData,
+            PositionSubcommand
         }
 
         public const byte ResponseControlCode = 0x01;
@@ -53,7 +65,30 @@ namespace MechatrolinkParser
                 { CommonFieldTypes.Monitor1, new Field("MONITOR1", true, 5, 6, 7, 8) },
                 { CommonFieldTypes.Monitor2, new Field("MONITOR2", true, 9, 10, 11, 12) },
                 { CommonFieldTypes.FeedForwardSpeed, new Field("VFF", true, 9, 10, 11, 12) },
-                { CommonFieldTypes.Option, new Field("OPTION", 3, 4) }
+                { CommonFieldTypes.Option, new Field("OPTION", 3, 4) },
+                { CommonFieldTypes.IdOffset, new Field("OFFSET", 6) },
+                { CommonFieldTypes.Size, new Field("SIZE", 7) },
+                { CommonFieldTypes.IdDeviceCode, new Field("DEVICE_CODE", 5) },
+                { CommonFieldTypes.ParameterNumber, new Field("NO", 5, 6) },
+                { CommonFieldTypes.ParameterContents, new Field("PARAMETER", 8, 9, 10, 11, 12, 13, 14, 15) },
+                { CommonFieldTypes.CommVersion, new Field("VER", 5) { CustomParser = MechatrolinkCustomParsers.CommVersionParser } },
+                { CommonFieldTypes.CommMode, new BitField("COM_MODE", 6)
+                    {
+                        BitsSetDesc = MechatrolinkCustomParsers.CommModeBitsSet,
+                        BitsUnsetDesc = MechatrolinkCustomParsers.CommModeBitsUnset,
+                        CustomParser = MechatrolinkCustomParsers.CommModeParser 
+                    }
+                },
+                { CommonFieldTypes.CommTime, new Field("COM_TIME", 7) },
+                { CommonFieldTypes.AlarmMode, new Field("ALARM_MODE", 5) { CustomParser = MechatrolinkCustomParsers.AlarmModeParser } },
+                { CommonFieldTypes.PositionSubcommand, new BitField("POS_SUBCMD", 5)
+                    {
+                        BitsSetDesc = MechatrolinkCustomParsers.PositionSubBitsSet,
+                        BitsUnsetDesc = MechatrolinkCustomParsers.PositionSubBitsUnset,
+                        CustomParser = MechatrolinkCustomParsers.PositionSubParser
+                    }
+                },
+                { CommonFieldTypes.PositionData, new Field("POS_DATA", 6, 7, 8, 9) }
             };
             Database = new List<CommandInfo>()
             {
@@ -150,6 +185,149 @@ namespace MechatrolinkParser
                         CommonFields[CommonFieldTypes.Monitor1],
                         CommonFields[CommonFieldTypes.Monitor2]
                     }
+                ),
+                new CommandInfo("ID_RD", "Read ID", 0x03,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.IdDeviceCode],
+                        CommonFields[CommonFieldTypes.IdOffset],
+                        CommonFields[CommonFieldTypes.Size]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.IdDeviceCode],
+                        CommonFields[CommonFieldTypes.IdOffset],
+                        CommonFields[CommonFieldTypes.Size],
+                        new Field("ID", 8, 9, 10, 11, 12, 13, 14, 15) { CustomParser = MechatrolinkCustomParsers.IdParser }
+                    }   
+                ),
+                new CommandInfo("CONFIG", "Setup device", 0x04,
+                    new Field[] { },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status]
+                    }
+                ),
+                new CommandInfo("PRM_RD", "Read parameter", 0x01,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.ParameterNumber],
+                        CommonFields[CommonFieldTypes.Size]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.ParameterNumber],
+                        CommonFields[CommonFieldTypes.Size],
+                        CommonFields[CommonFieldTypes.ParameterContents]
+                    }
+                ),
+                new CommandInfo("PRM_WR", "Write parameter", 0x02,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.ParameterNumber],
+                        CommonFields[CommonFieldTypes.Size],
+                        CommonFields[CommonFieldTypes.ParameterContents]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.ParameterNumber],
+                        CommonFields[CommonFieldTypes.Size],
+                        CommonFields[CommonFieldTypes.ParameterContents]
+                    }
+                ),
+                new CommandInfo("DISCONNECT", "Stop communication", 0x0F,
+                    new Field[] { },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status]
+                    }
+                ),
+                new CommandInfo("CONNECT", "Start communication", 0x0E,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.CommVersion],
+                        CommonFields[CommonFieldTypes.CommMode],
+                        CommonFields[CommonFieldTypes.CommTime]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.CommVersion],
+                        CommonFields[CommonFieldTypes.CommMode],
+                        CommonFields[CommonFieldTypes.CommTime]
+                    }
+                ),
+                new CommandInfo("SENS_ON", "Turn sensor ON", 0x23,
+                    new Field[] { },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status]
+                    }
+                ),
+                new CommandInfo("SENS_OFF", "Turn sensor OFF", 0x24,
+                    new Field[] { },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status]
+                    }
+                ),
+                new CommandInfo("ALM_RD", "Read alarm", 0x05,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.AlarmMode]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.AlarmMode],
+                        new Field("ALM_DATA", 6, 7, 8, 9, 10, 11, 12, 13, 14, 15)
+                    }
+                ),
+                new CommandInfo("ALM_CLR", "Clear alarm", 0x06,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.AlarmMode]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.AlarmMode]
+                    }
+                ),
+                new CommandInfo("SYNC_SET", "Start synchronous comm.", 0x0D,
+                    new Field[] { },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status]
+                    }
+                ),
+                new CommandInfo("POS_SET", "Set position", 0x20,
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.PositionSubcommand],
+                        CommonFields[CommonFieldTypes.PositionData]
+                    },
+                    new Field[]
+                    {
+                        CommonFields[CommonFieldTypes.Alarm],
+                        CommonFields[CommonFieldTypes.Status],
+                        CommonFields[CommonFieldTypes.PositionSubcommand],
+                        CommonFields[CommonFieldTypes.PositionData]
+                    }
                 )
             }.ToDictionary(x => x.Code);
         }
@@ -211,7 +389,11 @@ namespace MechatrolinkParser
             { 0x05, "Transmission setting not supported" },
             { 0x06, "Communication error (warning happened twice)" },
             { 0x07, "Communication warning" },
-            { 0x08, "Transmission cycle changed during comm." }
+            { 0x08, "Transmission cycle changed during comm." },
+            //According to Sigma-III series manual
+            { 0x95, "Command warning" },
+            //According to experience
+            { 0x99, "OK" }
         };
         /// <summary>
         /// According to general command specifications (servo/stepper-related)
@@ -273,6 +455,28 @@ namespace MechatrolinkParser
             //{ 5, "Phase C OFF" },
             { 9, "Brake OFF" }
         };
+        /// <summary>
+        /// According to SGDH commands manual 
+        /// </summary>
+        public static Dictionary<int, string> CommModeBitsSet = new Dictionary<int, string>
+        {
+            { 0, "Extended connection" },
+            { 1, "Start Synchronous" }
+        };
+        public static Dictionary<int, string> CommModeBitsUnset = new Dictionary<int, string>
+        {
+            { 0, "Standard communication" },
+            { 1, "Start Asynchronous" }
+        };
+
+        public static Dictionary<int, string> PositionSubBitsSet = new Dictionary<int, string>
+        {
+            { 7, "Ref. point ENabled" }
+        };
+        public static Dictionary<int, string> PositionSubBitsUnset = new Dictionary<int, string>
+        {
+            { 7, "Ref. point DISabled" }
+        };
 
 
         /// <summary>
@@ -301,6 +505,70 @@ namespace MechatrolinkParser
             byte data = bytes[0];
             //There's is just a table of alarm codes
             return AlarmData[data];
+        }
+
+        /// <summary>
+        /// According to SGDH command specification
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
+        public static string IdParser(byte[] bytes)
+        {
+            return "ID response = " + Encoding.ASCII.GetString(bytes).TrimEnd('\0');
+        }
+
+        /// <summary>
+        /// According to SGDH command specification
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
+        public static string CommModeParser(byte[] bytes)
+        {
+            string res = "DTMODE(#2,#3) = ";
+            switch (bytes[0] & 0x0C) //0b1100
+            {
+                case 0x00:
+                    res += "Single transfer";
+                    break;
+                case 0x04: //0b0100
+                    res += "Consecutive transfer";
+                    break;
+                case 0x08: //0b1000
+                    res += "Multiple transfers";
+                    break;
+                default:
+                    res += "Not supported!";
+                    break;
+            }
+            return res;
+        }
+
+        public static string CommVersionParser(byte[] bytes)
+        {
+            return string.Format("VER = {0:X} - {1}", bytes[0], bytes[0] == 0x10 ? "OK" : "NOT SUPPORTED!");
+        }
+
+        public static string AlarmModeParser(byte[] bytes)
+        {
+            return "ALM_MODE = " + (bytes[0] > 0 ? "History" : "Current");
+        }
+
+        public static string PositionSubParser(byte[] bytes)
+        {
+            string res = "POS_SEL = ";
+            switch (bytes[0] & 0x0F)
+            {
+                case 0:
+                    res += "POS";
+                    break;
+                case 3:
+                    res += "APOS";
+                    break;
+                default:
+                    res += "Not supported!";
+                    break;
+            }
+            return res;
         }
     }
 
