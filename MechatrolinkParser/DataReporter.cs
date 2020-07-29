@@ -10,8 +10,6 @@ namespace MechatrolinkParser
         public static bool FilterOutput { get; set; } = false;
         public static bool DisableTimestamp { get; set; } = false;
 
-        public static readonly string BroadcastPacketReport = "================ Info: Broadcast message ================" + Environment.NewLine;
-
         private static readonly string EncoderPacketFormat = "Timestamp: {0}" + Environment.NewLine +
             "FCS {1}: {2} (computed: {3})" + Environment.NewLine;
         private static readonly string MechatrolinkPacketHeaderFormat = "Timestamp: {0}" + Environment.NewLine +
@@ -35,7 +33,7 @@ namespace MechatrolinkParser
                 {
                     if (item.Command.ParsedFields.All(x => x.Length == 0))
                     {
-                        res.AppendLine(BroadcastPacketReport);
+                        res.AppendLine(EncoderCommandDatabase.BroadcastPacketReport);
                         continue;
                     }
                 }

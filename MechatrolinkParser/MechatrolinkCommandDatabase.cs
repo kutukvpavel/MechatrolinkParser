@@ -357,7 +357,7 @@ namespace MechatrolinkParser
     public static class MechatrolinkCustomParsers
     {
         /// <summary>
-        /// According to Sigma-II manuals
+        /// According to Sigma-II (SGDM) series manuals
         /// </summary>
         public static readonly Dictionary<byte, string> MonitorSelectData = new Dictionary<byte, string>
         {
@@ -398,7 +398,7 @@ namespace MechatrolinkParser
         /// <summary>
         /// According to general command specifications (servo/stepper-related)
         /// </summary>
-        public static Dictionary<int, string> StatusBitsSet = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> StatusBitsSet = new Dictionary<int, string>
         {
             { 0, "Alarm" },
             { 1, "Warning" },
@@ -415,7 +415,7 @@ namespace MechatrolinkParser
         /// <summary>
         /// According to general command specifications (servo/stepper-related)
         /// </summary>
-        public static Dictionary<int, string> StatusBitsUnset = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> StatusBitsUnset = new Dictionary<int, string>
         {
             { 2, "Busy" },
             { 3, "Servo OFF" },
@@ -430,7 +430,7 @@ namespace MechatrolinkParser
         /// According to general command specifications (servo/stepper-related)
         /// May differ for some devices!
         /// </summary>
-        public static Dictionary<int, string> IOBitsSet = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> IOBitsSet = new Dictionary<int, string>
         {
             { 0, "Forward over-travel" },
             { 1, "Reverse over-travel" },
@@ -448,7 +448,7 @@ namespace MechatrolinkParser
         /// According to general command specifications (servo/stepper-related)
         /// May differ for some devices!
         /// </summary>
-        public static Dictionary<int, string> IOBitsUnset = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> IOBitsUnset = new Dictionary<int, string>
         {
             //{ 3, "Phase A OFF" },  not true for SGDM
             //{ 4, "Phase B OFF" },
@@ -458,29 +458,31 @@ namespace MechatrolinkParser
         /// <summary>
         /// According to SGDH commands manual 
         /// </summary>
-        public static Dictionary<int, string> CommModeBitsSet = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> CommModeBitsSet = new Dictionary<int, string>
         {
             { 0, "Extended connection" },
             { 1, "Start Synchronous" }
         };
-        public static Dictionary<int, string> CommModeBitsUnset = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> CommModeBitsUnset = new Dictionary<int, string>
         {
             { 0, "Standard communication" },
             { 1, "Start Asynchronous" }
         };
-
-        public static Dictionary<int, string> PositionSubBitsSet = new Dictionary<int, string>
+        /// <summary>
+        /// According to SGDH commands manual 
+        /// </summary>
+        public static readonly Dictionary<int, string> PositionSubBitsSet = new Dictionary<int, string>
         {
             { 7, "Ref. point ENabled" }
         };
-        public static Dictionary<int, string> PositionSubBitsUnset = new Dictionary<int, string>
+        public static readonly Dictionary<int, string> PositionSubBitsUnset = new Dictionary<int, string>
         {
             { 7, "Ref. point DISabled" }
         };
 
 
         /// <summary>
-        /// According to Sigma-II series manuals
+        /// According to Sigma-II (SGDM) series manuals
         /// </summary>
         /// <param name="bytes"></param>
         /// <returns></returns>
@@ -542,17 +544,29 @@ namespace MechatrolinkParser
             }
             return res;
         }
-
+        /// <summary>
+        /// According to SGDH command specification
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
         public static string CommVersionParser(byte[] bytes)
         {
             return string.Format("VER = {0:X} - {1}", bytes[0], bytes[0] == 0x10 ? "OK" : "NOT SUPPORTED!");
         }
-
+        /// <summary>
+        /// According to SGDH command specification
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
         public static string AlarmModeParser(byte[] bytes)
         {
             return "ALM_MODE = " + (bytes[0] > 0 ? "History" : "Current");
         }
-
+        /// <summary>
+        /// According to SGDH command specification
+        /// </summary>
+        /// <param name="bytes"></param>
+        /// <returns></returns>
         public static string PositionSubParser(byte[] bytes)
         {
             string res = "POS_SEL = ";
@@ -574,10 +588,10 @@ namespace MechatrolinkParser
         public static string ParameterValueParser(byte[] bytes)
         {
             bytes = bytes.Reverse().ToArray();
-            int res = 0;
+            ulong res = 0;
             for (int i = 0; i < bytes.Length; i++)
             {
-                res |= bytes[i] << (i * 8);
+                res |= (ulong)bytes[i] << (i * 8);
             }
             return string.Format("DEC = {0}", res);
         }

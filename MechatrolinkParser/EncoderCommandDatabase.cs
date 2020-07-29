@@ -21,8 +21,9 @@ namespace MechatrolinkParser
         /// -2 offset that results from command code stripping and byte numbering is internally taken care of.
         /// </summary>
         public static readonly Dictionary<byte, CommandInfo> Database;
-        public static readonly Dictionary<CommonFieldTypes, Field> CommonFields;
-        //public static readonly string SyncFrameReport = "================ Info: SYNC frame ================" + Environment.NewLine;
+        public static readonly Dictionary<CommonFieldTypes, Field> CommonFields;           
+        public static readonly string BroadcastPacketReport = "================ Info: Broadcast message ================" + Environment.NewLine;
+
 
         static EncoderCommandDatabase()
         {
